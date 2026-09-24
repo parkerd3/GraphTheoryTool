@@ -36,6 +36,7 @@ class MainWindow(QMainWindow):
         self.graph = Graph()
         self.scene = GraphScene(self.graph, self)
         self.canvas = QGraphicsView(self.scene)
+        self.canvas_container = QWidget()
         self.canvas.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.canvas.setDragMode(QGraphicsView.DragMode.NoDrag)
         # AI explained the difference between the scene and the canvas;
@@ -46,6 +47,26 @@ class MainWindow(QMainWindow):
         controls = QWidget()
         controls.setMinimumWidth(230)
         controls_layout = QVBoxLayout(controls)
+
+        toolbar = QWidget()
+        toolbar_layout = QHBoxLayout(toolbar)
+        self.draw_tool_button = QToolButton()
+        self.draw_tool_button.setText("Draw")
+        self.erase_tool_button = QToolButton()
+        self.erase_tool_button.setText("Erase")
+        self.select_tool_button = QToolButton()
+        self.select_tool_button.setText("Select")
+        self.move_tool_button = QToolButton()
+        self.move_tool_button.setText("Move")
+        toolbar_layout.addWidget(self.draw_tool_button)
+        toolbar_layout.addWidget(self.erase_tool_button)
+        toolbar_layout.addWidget(self.select_tool_button)
+        toolbar_layout.addWidget(self.move_tool_button)
+
+        canvas_container_layout = QVBoxLayout(self.canvas_container)
+        canvas_container_layout.addWidget(toolbar)
+        canvas_container_layout.addWidget(self.canvas)
+        
         controls_layout.addWidget(QLabel("GraphTheoryTool"))
         controls_layout.addWidget(QLabel("The control panel will grow with the project."))
 
@@ -57,6 +78,8 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.matrix_button)
         controls_layout.addWidget(self.show_labels_checkbox)
         # Now those buttons actually live where they should: in the left panel.
+
+
 
         controls_layout.addWidget(QLabel("Matrices"))
         controls_layout.addWidget(QListWidget())
