@@ -5,14 +5,16 @@ graphics will be added after the model and window shell are in place.
 """
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QGraphicsEllipseItem,
-    QGraphicsLineItem,
     QGraphicsScene,
     QGraphicsTextItem,
     QGraphicsSceneMouseEvent,
 )
 
-from .graph_items import EDGE_PEN, NODE_BRUSH, NODE_PEN, SELECTED_NODE_BRUSH
+from .graph_items import (
+    EdgeGraphicsItem,
+    NodeGraphicsItem,
+    NODE_BRUSH,
+)
 
 try:
     from ..model import Graph
@@ -29,6 +31,9 @@ class GraphScene(QGraphicsScene):
         self.mode = "pen"
         self.labels_visible = False
         self.selected_node_id: int | None = None
+        self.is_erasing = False
+        self.selected_nodes: set[int] = set()
+        self.selected_edges: set[tuple[int, int]] = set()
         self.node_items = {}
         self.edge_items = {}
         self.setSceneRect(0, 0, 1200, 800)
@@ -41,8 +46,39 @@ class GraphScene(QGraphicsScene):
                 self._handle_pen_click(position)
             elif self.mode == "eraser":
                 self._handle_eraser_click(position)
+                self.is_erasing = True
+                event.accept()
+                return
+            elif self.mode == "select":
+                self._handle_select_click(position, event.modifiers())
 
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        """Erase elements crossed while the left mouse button is held."""
+
+        if self.mode == "eraser" and self.is_erasing:
+            if event.buttons() & Qt.MouseButton.LeftButton:
+                self._handle_eraser_click(event.scenePos())
+                event.accept()
+                return
+
+            self.is_erasing = False
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        """End an erasing gesture when the left button is released."""
+
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.is_erasing = False
+
+        super().mouseReleaseEvent(event)
+
+    def stop_erasing(self) -> None:
+        """Cancel any active erasing gesture."""
+
+        self.is_erasing = False
 
     def _handle_pen_click(self, position) -> None:
         """Create nodes or connect two nodes according to the Pen workflow."""
@@ -85,6 +121,52 @@ class GraphScene(QGraphicsScene):
         if edge_key is not None:
             self.delete_edge(*edge_key)
 
+    def _handle_select_click(self, position, modifiers) -> None:
+        """Select or toggle a node with a normal or Ctrl-click."""
+
+        node_id = self._node_id_at(position)
+        ctrl_held = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+
+        if node_id is None:
+            if not ctrl_held:
+                self.clear_selection()
+            return
+
+        if ctrl_held and node_id in self.selected_nodes:
+            self.selected_nodes.remove(node_id)
+        elif ctrl_held:
+            self.selected_nodes.add(node_id)
+        else:
+            self.selected_nodes = {node_id}
+
+        self._synchronize_selected_edges()
+        self._refresh_selection_visuals()
+
+    def clear_selection(self) -> None:
+        """Deselect every node and edge."""
+
+        self.selected_nodes.clear()
+        self.selected_edges.clear()
+        self._refresh_selection_visuals()
+
+    def _synchronize_selected_edges(self) -> None:
+        """Select every edge whose two endpoints are selected."""
+
+        self.selected_edges = {
+            key
+            for key in self.edge_items
+            if key[0] in self.selected_nodes and key[1] in self.selected_nodes
+        }
+
+    def _refresh_selection_visuals(self) -> None:
+        """Apply the current selection sets to all graphics items."""
+
+        for node_id, items in self.node_items.items():
+            items["circle"].set_selected(node_id in self.selected_nodes)
+
+        for key, edge_item in self.edge_items.items():
+            edge_item.set_selected(key in self.selected_edges)
+
     def _node_id_at(self, position) -> int | None:
         """Return the node ID under a scene position, if there is one."""
 
@@ -108,7 +190,7 @@ class GraphScene(QGraphicsScene):
 
         self.clear_selected_node()
         self.selected_node_id = node_id
-        self.node_items[node_id]["circle"].setBrush(SELECTED_NODE_BRUSH)
+        self.node_items[node_id]["circle"].set_selected(True)
 
     def clear_selected_node(self) -> None:
         """Remove the pending edge selection, if one exists."""
@@ -118,22 +200,13 @@ class GraphScene(QGraphicsScene):
 
         items = self.node_items.get(self.selected_node_id)
         if items is not None:
-            items["circle"].setBrush(NODE_BRUSH)
+            items["circle"].set_selected(
+                self.selected_node_id in self.selected_nodes
+            )
         self.selected_node_id = None
 
     def add_node_visual(self, node) -> None:
-        radius = 20
-
-        circle = QGraphicsEllipseItem(
-            node.x - radius,
-            node.y - radius,
-            radius * 2,
-            radius * 2,
-        )
-
-        circle.setBrush(NODE_BRUSH)
-        circle.setPen(NODE_PEN)
-        circle.setData(0, node.id)
+        circle = NodeGraphicsItem(node.id, node.x, node.y)
 
         label = QGraphicsTextItem(str(node.label))
         label.setDefaultTextColor(Qt.GlobalColor.black)
@@ -162,14 +235,14 @@ class GraphScene(QGraphicsScene):
         source = self.graph.get_node(edge.source)
         target = self.graph.get_node(edge.target)
 
-        line = QGraphicsLineItem(
+        line = EdgeGraphicsItem(
+            edge.source,
+            edge.target,
             source.x,
             source.y,
             target.x,
             target.y,
         )
-        line.setPen(EDGE_PEN)
-        line.setZValue(-1)
         self.addItem(line)
 
         self.edge_items[self._edge_key(edge.source, edge.target)] = line
@@ -183,7 +256,9 @@ class GraphScene(QGraphicsScene):
             return
 
         self.graph.remove_edge(source, target)
+        self.selected_edges.discard(key)
         self.removeItem(line)
+        self._refresh_selection_visuals()
 
     def delete_node(self, node_id: int) -> None:
         """Remove a node, its incident edges, and its graphics."""
@@ -198,10 +273,13 @@ class GraphScene(QGraphicsScene):
             self.delete_edge(source, target)
 
         self.graph.remove_node(node_id)
+        self.selected_nodes.discard(node_id)
         items = self.node_items.pop(node_id)
         self.removeItem(items["circle"])
         self.removeItem(items["label"])
         self.refresh_node_labels()
+        self._synchronize_selected_edges()
+        self._refresh_selection_visuals()
 
     def refresh_node_labels(self) -> None:
         """Update visible label text and center labels after renumbering."""

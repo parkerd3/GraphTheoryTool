@@ -249,20 +249,20 @@ selection, and graphics items will display selected state.
 
 #### Stage 0: Prepare the graphics layer
 
-- [ ] Introduce `NodeGraphicsItem` and `EdgeGraphicsItem` classes.
-- [ ] Give each graphics item a reliable reference to its model ID or edge key.
-- [ ] Centralize normal, selected, and hover appearance in `graph_items.py`.
-- [ ] Add focused tests for the selection data structures before adding complex
+- [x] Introduce `NodeGraphicsItem` and `EdgeGraphicsItem` classes.
+- [x] Give each graphics item a reliable reference to its model ID or edge key.
+- [x] Centralize normal, selected, and hover appearance in `graph_items.py`.
+- [x] Add focused tests for the selection data structures before adding complex
       mouse behavior.
 
 #### Stage 1: Single-element selection
 
-- [ ] Add `selected_nodes` and `selected_edges` to `GraphScene`.
-- [ ] Select one node with a normal left click.
-- [ ] Make selected nodes solid orange.
-- [ ] Clear the selection by clicking blank canvas.
-- [ ] Make Ctrl-click add or remove a node.
-- [ ] Keep edge selection synchronized with the endpoint invariants.
+- [x] Add `selected_nodes` and `selected_edges` to `GraphScene`.
+- [x] Select one node with a normal left click.
+- [x] Make selected nodes solid orange.
+- [x] Clear the selection by clicking blank canvas.
+- [x] Make Ctrl-click add or remove a node.
+- [x] Keep edge selection synchronized with the endpoint invariants.
 
 #### Stage 2: Edge selection
 

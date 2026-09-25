@@ -127,6 +127,7 @@ class MainWindow(QMainWindow):
     def set_canvas_mode(self, mode: str) -> None:
         """Change the active canvas tool and configure basic view behavior."""
 
+        self.scene.stop_erasing()
         if mode != "pen":
             self.scene.clear_selected_node()
         self.scene.mode = mode
