@@ -52,6 +52,24 @@ class MainWindow(QMainWindow):
         self.delete_action.triggered.connect(self.delete_selected)
         self.addAction(self.delete_action)
 
+        self.copy_action = QAction("Copy", self)
+        self.copy_action.setShortcut(QKeySequence("Ctrl+C"))
+        self.copy_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self.copy_action.triggered.connect(self.copy_selected)
+        self.addAction(self.copy_action)
+
+        self.cut_action = QAction("Cut", self)
+        self.cut_action.setShortcut(QKeySequence("Ctrl+X"))
+        self.cut_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self.cut_action.triggered.connect(self.cut_selected)
+        self.addAction(self.cut_action)
+
+        self.paste_action = QAction("Paste", self)
+        self.paste_action.setShortcut(QKeySequence("Ctrl+V"))
+        self.paste_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self.paste_action.triggered.connect(self.paste_selected)
+        self.addAction(self.paste_action)
+
         # Code involving creating the canvas on the right.
         self.graph = Graph()
         self.scene = GraphScene(self.graph, self)
@@ -201,3 +219,18 @@ class MainWindow(QMainWindow):
         """Delete the currently selected nodes using the active history."""
 
         self.scene.delete_selection()
+
+    def copy_selected(self) -> None:
+        """Copy the current graph selection to the system clipboard."""
+
+        self.scene.copy_selection()
+
+    def cut_selected(self) -> None:
+        """Copy the current graph selection, then delete it."""
+
+        self.scene.cut_selection()
+
+    def paste_selected(self) -> None:
+        """Paste a graph fragment from the system clipboard."""
+
+        self.scene.paste_selection()

@@ -1,10 +1,13 @@
-"""Initial graph canvas.
+"""Graph editing scene and interaction logic.
 
 The scene is intentionally small for the first milestone.  Node and edge
 graphics will be added after the model and window shell are in place.
 """
+import json
+
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QGraphicsScene,
     QGraphicsRectItem,
     QGraphicsTextItem,
@@ -28,6 +31,9 @@ except ImportError:  # Supports launching with ``python main.py``.
 class GraphScene(QGraphicsScene):
     """Scene that will display and edit a :class:`Graph`."""
 
+    CLIPBOARD_FORMAT = "GraphTheoryTool.fragment.v1"
+    PASTE_OFFSET = (30.0, 30.0)
+
     def __init__(self, graph: Graph | None = None, parent=None) -> None:
         super().__init__(parent)
         self.graph = graph or Graph()
@@ -46,6 +52,8 @@ class GraphScene(QGraphicsScene):
         self.is_moving_nodes = False
         self.move_last_position: QPointF | None = None
         self.moving_node_ids: set[int] = set()
+        self._last_paste_clipboard_text: str | None = None
+        self._paste_count = 0
         self.node_items = {}
         self.edge_items = {}
         self.setSceneRect(0, 0, 1200, 800)
@@ -604,6 +612,155 @@ class GraphScene(QGraphicsScene):
 
         self._execute_edit(delete_edges)
         return True
+
+    def copy_selection(self) -> bool:
+        """Copy selected nodes and eligible selected edges to the clipboard."""
+
+        if not self.selected_nodes:
+            return False
+
+        nodes = [
+            {
+                "id": node.id,
+                "x": node.x,
+                "y": node.y,
+            }
+            for node in self.graph.nodes
+            if node.id in self.selected_nodes
+        ]
+
+        edges = []
+        for key in sorted(self.selected_edges):
+            if key[0] not in self.selected_nodes or key[1] not in self.selected_nodes:
+                continue
+            edge = self._edge_for_key(key)
+            if edge is None:
+                continue
+            edges.append(
+                {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "weight": edge.weight,
+                    "directed": edge.directed,
+                }
+            )
+
+        payload = {
+            "format": self.CLIPBOARD_FORMAT,
+            "nodes": nodes,
+            "edges": edges,
+        }
+        clipboard_text = json.dumps(payload)
+        QApplication.clipboard().setText(clipboard_text)
+        self._last_paste_clipboard_text = clipboard_text
+        self._paste_count = 0
+        return True
+
+    def cut_selection(self) -> bool:
+        """Copy the selection, then delete it as one undoable edit."""
+
+        if not self.copy_selection():
+            return False
+        return self.delete_selection()
+
+    def paste_selection(self) -> bool:
+        """Paste a graph fragment and include its copied eligible edges."""
+
+        return self._paste_fragment(include_edges=True)
+
+    def paste_nodes_only(self) -> bool:
+        """Paste only the nodes from the current graph fragment."""
+
+        return self._paste_fragment(include_edges=False)
+
+    def _paste_fragment(self, *, include_edges: bool) -> bool:
+        clipboard_text = QApplication.clipboard().text()
+        if clipboard_text != self._last_paste_clipboard_text:
+            self._last_paste_clipboard_text = clipboard_text
+            self._paste_count = 0
+
+        fragment = self._read_clipboard_fragment(clipboard_text)
+        if fragment is None or not fragment.get("nodes"):
+            return False
+
+        paste_number = self._paste_count + 1
+        offset_x = self.PASTE_OFFSET[0] * paste_number
+        offset_y = self.PASTE_OFFSET[1] * paste_number
+
+        def paste() -> None:
+            self.clear_selection()
+            id_map: dict[int, int] = {}
+            new_node_ids: list[int] = []
+
+            for node_data in fragment["nodes"]:
+                old_id = int(node_data["id"])
+                node = self.graph.add_node(
+                    float(node_data["x"]) + offset_x,
+                    float(node_data["y"]) + offset_y,
+                )
+                id_map[old_id] = node.id
+                new_node_ids.append(node.id)
+                self.add_node_visual(node)
+
+            new_edge_keys: set[tuple[int, int]] = set()
+            if include_edges:
+                for edge_data in fragment.get("edges", []):
+                    source = id_map.get(int(edge_data["source"]))
+                    target = id_map.get(int(edge_data["target"]))
+                    if source is None or target is None:
+                        continue
+
+                    edge = self.graph.add_edge(
+                        source,
+                        target,
+                        weight=float(edge_data.get("weight", 1.0)),
+                        directed=bool(edge_data.get("directed", False)),
+                    )
+                    self.add_edge_visual(edge)
+                    new_edge_keys.add(self._edge_key(source, target))
+
+            self.selected_nodes = set(new_node_ids)
+            self.selected_edges = new_edge_keys
+            self.manually_deselected_edges.clear()
+            self._refresh_selection_visuals()
+
+        try:
+            self._execute_edit(paste)
+        except (KeyError, TypeError, ValueError):
+            return False
+        self._paste_count = paste_number
+        return True
+
+    @classmethod
+    def _read_clipboard_fragment(cls, clipboard_text: str | None = None) -> dict | None:
+        """Read and validate a GraphTheoryTool clipboard fragment."""
+
+        try:
+            if clipboard_text is None:
+                clipboard_text = QApplication.clipboard().text()
+            payload = json.loads(clipboard_text)
+        except (TypeError, json.JSONDecodeError):
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+        if payload.get("format") != cls.CLIPBOARD_FORMAT:
+            return None
+        if not isinstance(payload.get("nodes"), list):
+            return None
+        return payload
+
+    def _edge_for_key(self, key: tuple[int, int]):
+        """Return the model edge represented by an edge key."""
+
+        return next(
+            (
+                edge
+                for edge in self.graph.edges
+                if self._edge_key(edge.source, edge.target) == key
+            ),
+            None,
+        )
 
     def refresh_node_labels(self) -> None:
         """Update visible label text and center labels after renumbering."""

@@ -291,7 +291,7 @@ selection, and graphics items will display selected state.
 - [x] Add `Ctrl+Z` and `Ctrl+Shift+Z` shortcuts.
 - [x] Add visible Undo and Redo controls beside the canvas toolbar.
 - [ ] Add history grouping for node and group movement.
-- [ ] Add history support for cut, paste, and transformations.
+- [x] Add history support for cut and paste; transformations remain for Stage 7.
 
 #### Stage 4: Keyboard deletion
 
@@ -312,14 +312,14 @@ selection, and graphics items will display selected state.
 
 #### Stage 6: Copy, cut, and paste
 
-- [ ] Define the clipboard payload for selected nodes and eligible selected edges.
-- [ ] Implement `Ctrl+C` using a self-contained graph fragment format.
-- [ ] Implement `Ctrl+X` as copy followed by deletion.
-- [ ] Implement `Ctrl+V` with fresh internal IDs and an offset from the source.
-- [ ] Deselect the old selection after pasting.
-- [ ] Select all newly pasted nodes and edges.
-- [ ] Add a “paste nodes only” option.
-- [ ] Ensure copied edges are recreated only when both endpoint nodes are in the
+- [x] Define the clipboard payload for selected nodes and eligible selected edges.
+- [x] Implement `Ctrl+C` using a self-contained graph fragment format.
+- [x] Implement `Ctrl+X` as copy followed by deletion.
+- [x] Implement `Ctrl+V` with fresh internal IDs and an offset from the source.
+- [x] Deselect the old selection after pasting.
+- [x] Select all newly pasted nodes and edges.
+- [x] Add a `paste_nodes_only()` operation; expose it through the Stage 7 context menu.
+- [x] Ensure copied edges are recreated only when both endpoint nodes are in the
       pasted fragment and the edge was selected.
 
 #### Stage 7: Context menus and transformations
@@ -344,7 +344,6 @@ selection, and graphics items will display selected state.
 
 ### Recommended next milestone
 
-The next implementation should be Stage 0 followed by Stage 1: establish the
-selection sets and implement ordinary click selection, Ctrl-click toggling, and
-automatic edge selection. Rectangle selection, keyboard commands, movement, and
-clipboard operations should wait until those invariants are working.
+The next implementation should be Stage 7: add context menus and begin the
+transformation tools. The selection invariants, rectangle selection, keyboard
+deletion, movement, undo/redo, and clipboard operations are now in place.
