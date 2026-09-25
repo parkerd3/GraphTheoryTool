@@ -75,6 +75,13 @@ class Graph:
             for edge in self._edges
             if edge.source != node_id and edge.target != node_id
         ]
+        self.relabel_nodes()
+
+    def relabel_nodes(self) -> None:
+        """Assign consecutive visible labels in the current node order."""
+
+        for label, node in enumerate(self._nodes.values(), start=1):
+            node.label = label
 
     def add_edge(
         self,
