@@ -100,6 +100,57 @@ def test_single_node_selection_does_not_show_rotation_controls() -> None:
     assert not scene.rotation_controls_visible
 
 
+def test_horizontal_reflection_preserves_external_edges() -> None:
+    get_qapplication()
+    scene = GraphScene()
+    first = scene.graph.add_node(100, 100)
+    second = scene.graph.add_node(300, 200)
+    external = scene.graph.add_node(500, 300)
+    for node in (first, second, external):
+        scene.add_node_visual(node)
+
+    internal_edge = scene.graph.add_edge(first.id, second.id)
+    external_edge = scene.graph.add_edge(second.id, external.id)
+    scene.add_edge_visual(internal_edge)
+    scene.add_edge_visual(external_edge)
+    scene.selected_nodes = {first.id, second.id}
+    scene._synchronize_selected_edges()
+    scene._refresh_selection_visuals()
+
+    assert scene.reflect_horizontal()
+
+    assert (first.x, first.y) == (300, 100)
+    assert (second.x, second.y) == (100, 200)
+    assert (external.x, external.y) == (500, 300)
+    assert len(scene.graph.edges) == 2
+    assert scene.edge_items[(1, 2)].line().p1() == QPointF(100, 200)
+    assert scene.edge_items[(1, 2)].line().p2() == QPointF(500, 300)
+
+    assert scene.undo()
+    assert (first := scene.graph.get_node(0)).x == 100
+    assert first.y == 100
+    assert (second := scene.graph.get_node(1)).x == 300
+    assert second.y == 200
+
+
+def test_vertical_reflection_uses_the_selection_center() -> None:
+    scene = make_selected_pair()
+    first = scene.graph.get_node(0)
+    second = scene.graph.get_node(1)
+    first.y = 50
+    second.y = 250
+    scene.node_items[first.id]["circle"].set_center(first.x, first.y)
+    scene.node_items[second.id]["circle"].set_center(second.x, second.y)
+    scene._refresh_edge_positions()
+
+    assert scene.reflect_vertical()
+
+    assert (first.x, first.y) == (100, 250)
+    assert (second.x, second.y) == (300, 50)
+    assert scene.selected_nodes == {first.id, second.id}
+    assert scene.selected_edges == {(first.id, second.id)}
+
+
 def test_context_menu_requires_a_selected_target() -> None:
     scene = make_selected_pair()
 

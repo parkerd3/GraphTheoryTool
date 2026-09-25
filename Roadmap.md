@@ -328,13 +328,14 @@ selection, and graphics items will display selected state.
 - [x] Add “deselect all edges.”
 - [x] Add “delete selected edges.”
 - [x] Add “delete all connected edges.”
-- [ ] Add horizontal and vertical reflection.
-- [ ] Preserve every edge attached to reflected nodes, including edges outside
+- [x] Add horizontal and vertical reflection.
+- [x] Preserve every edge attached to reflected nodes, including edges outside
       the selection.
 - [x] Add hover-activated rotation controls for multi-node selections, with a
       dashed guide circle and draggable handle.
 - [x] Keep rotation as one undoable edit and update connected edges live.
-- [ ] Add other transformations after reflection is reliable.
+- [x] Complete the planned Stage 7 context-menu and transformation work; defer
+      additional transformations to future enhancements.
 
 #### Stage 8: Interaction polish
 
@@ -347,6 +348,7 @@ selection, and graphics items will display selected state.
 
 ### Recommended next milestone
 
-The next implementation should be Stage 7: add context menus and begin the
-transformation tools. The selection invariants, rectangle selection, keyboard
-deletion, movement, undo/redo, and clipboard operations are now in place.
+The next implementation should be Stage 8: interaction polish and usability
+improvements. The selection invariants, keyboard deletion, movement,
+undo/redo, clipboard operations, context menus, rotation, and reflection are
+now in place.

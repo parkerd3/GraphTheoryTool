@@ -203,6 +203,9 @@ class GraphScene(QGraphicsScene):
         menu.addSeparator()
         paste_nodes_action = menu.addAction("Paste nodes only")
         paste_nodes_action.setEnabled(self._read_clipboard_fragment() is not None)
+        menu.addSeparator()
+        reflect_horizontal_action = menu.addAction("Reflect horizontally")
+        reflect_vertical_action = menu.addAction("Reflect vertically")
 
         chosen_action = menu.exec(event.screenPos())
         if chosen_action is deselect_edges_action:
@@ -213,6 +216,10 @@ class GraphScene(QGraphicsScene):
             self.delete_all_connected_edges()
         elif chosen_action is paste_nodes_action:
             self.paste_nodes_only()
+        elif chosen_action is reflect_horizontal_action:
+            self.reflect_horizontal()
+        elif chosen_action is reflect_vertical_action:
+            self.reflect_vertical()
 
         event.accept()
 
@@ -253,6 +260,45 @@ class GraphScene(QGraphicsScene):
             self._refresh_selection_visuals()
 
         self._execute_edit(delete_edges)
+        return True
+
+    def reflect_horizontal(self) -> bool:
+        """Mirror selected nodes left-to-right around their center line."""
+
+        return self._reflect_selected_nodes(horizontal=True)
+
+    def reflect_vertical(self) -> bool:
+        """Mirror selected nodes up-and-down around their center line."""
+
+        return self._reflect_selected_nodes(horizontal=False)
+
+    def _reflect_selected_nodes(self, *, horizontal: bool) -> bool:
+        """Reflect selected node positions while preserving all graph edges."""
+
+        if not self.selected_nodes:
+            return False
+
+        center = self._selection_center()
+        if center is None:
+            return False
+
+        def reflect() -> None:
+            for node_id in self.selected_nodes:
+                node = self.graph.get_node(node_id)
+                if horizontal:
+                    node.x = 2 * center.x() - node.x
+                else:
+                    node.y = 2 * center.y() - node.y
+
+                items = self.node_items.get(node_id)
+                if items is not None:
+                    items["circle"].set_center(node.x, node.y)
+                    self._center_label(node, items["label"])
+
+            self._refresh_edge_positions()
+
+        self.hide_rotation_controls()
+        self._execute_edit(reflect)
         return True
 
     def _update_rotation_controls_hover(self, position: QPointF) -> None:
