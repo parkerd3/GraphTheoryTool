@@ -62,6 +62,56 @@ def test_edges_follow_selected_endpoints() -> None:
     assert scene.selected_edges == set()
 
 
+def test_ctrl_click_can_toggle_an_eligible_edge() -> None:
+    get_qapplication()
+    scene = GraphScene()
+    first = scene.graph.add_node(100, 100)
+    second = scene.graph.add_node(300, 100)
+    scene.add_node_visual(first)
+    scene.add_node_visual(second)
+    edge = scene.graph.add_edge(first.id, second.id)
+    scene.add_edge_visual(edge)
+
+    scene._handle_select_click(QPointF(100, 100), Qt.KeyboardModifier.NoModifier)
+    scene._handle_select_click(
+        QPointF(300, 100),
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    assert scene.selected_edges == {(first.id, second.id)}
+
+    scene._handle_select_click(
+        QPointF(200, 100),
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    assert scene.selected_edges == set()
+
+    scene._handle_select_click(
+        QPointF(200, 100),
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    assert scene.selected_edges == {(first.id, second.id)}
+
+
+def test_ineligible_edge_cannot_be_selected() -> None:
+    get_qapplication()
+    scene = GraphScene()
+    first = scene.graph.add_node(100, 100)
+    second = scene.graph.add_node(300, 100)
+    scene.add_node_visual(first)
+    scene.add_node_visual(second)
+    edge = scene.graph.add_edge(first.id, second.id)
+    scene.add_edge_visual(edge)
+
+    scene._handle_select_click(QPointF(100, 100), Qt.KeyboardModifier.NoModifier)
+    scene._handle_select_click(
+        QPointF(200, 100),
+        Qt.KeyboardModifier.ControlModifier,
+    )
+
+    assert scene.selected_nodes == {first.id}
+    assert scene.selected_edges == set()
+
+
 def test_blank_click_clears_selection() -> None:
     get_qapplication()
     scene = GraphScene()

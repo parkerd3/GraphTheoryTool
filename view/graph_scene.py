@@ -34,6 +34,7 @@ class GraphScene(QGraphicsScene):
         self.is_erasing = False
         self.selected_nodes: set[int] = set()
         self.selected_edges: set[tuple[int, int]] = set()
+        self.manually_deselected_edges: set[tuple[int, int]] = set()
         self.node_items = {}
         self.edge_items = {}
         self.setSceneRect(0, 0, 1200, 800)
@@ -128,6 +129,11 @@ class GraphScene(QGraphicsScene):
         ctrl_held = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
 
         if node_id is None:
+            edge_key = self._edge_key_at(position)
+            if edge_key is not None:
+                self._handle_edge_selection(edge_key, ctrl_held)
+                return
+
             if not ctrl_held:
                 self.clear_selection()
             return
@@ -138,8 +144,37 @@ class GraphScene(QGraphicsScene):
             self.selected_nodes.add(node_id)
         else:
             self.selected_nodes = {node_id}
+            self.manually_deselected_edges.clear()
 
         self._synchronize_selected_edges()
+        self._refresh_selection_visuals()
+
+    def _handle_edge_selection(
+        self,
+        edge_key: tuple[int, int],
+        ctrl_held: bool,
+    ) -> None:
+        """Select an edge only when both of its endpoints are selected."""
+
+        source, target = edge_key
+        endpoints_selected = (
+            source in self.selected_nodes and target in self.selected_nodes
+        )
+        if not endpoints_selected:
+            return
+
+        if ctrl_held:
+            if edge_key in self.selected_edges:
+                self.selected_edges.remove(edge_key)
+                self.manually_deselected_edges.add(edge_key)
+            else:
+                self.selected_edges.add(edge_key)
+                self.manually_deselected_edges.discard(edge_key)
+        else:
+            self.selected_nodes = {source, target}
+            self.manually_deselected_edges.clear()
+            self.selected_edges = {edge_key}
+
         self._refresh_selection_visuals()
 
     def clear_selection(self) -> None:
@@ -147,16 +182,19 @@ class GraphScene(QGraphicsScene):
 
         self.selected_nodes.clear()
         self.selected_edges.clear()
+        self.manually_deselected_edges.clear()
         self._refresh_selection_visuals()
 
     def _synchronize_selected_edges(self) -> None:
         """Select every edge whose two endpoints are selected."""
 
-        self.selected_edges = {
+        eligible_edges = {
             key
             for key in self.edge_items
             if key[0] in self.selected_nodes and key[1] in self.selected_nodes
         }
+        self.manually_deselected_edges.intersection_update(eligible_edges)
+        self.selected_edges = eligible_edges - self.manually_deselected_edges
 
     def _refresh_selection_visuals(self) -> None:
         """Apply the current selection sets to all graphics items."""
@@ -257,6 +295,7 @@ class GraphScene(QGraphicsScene):
 
         self.graph.remove_edge(source, target)
         self.selected_edges.discard(key)
+        self.manually_deselected_edges.discard(key)
         self.removeItem(line)
         self._refresh_selection_visuals()
 

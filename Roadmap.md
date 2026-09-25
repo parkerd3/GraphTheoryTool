@@ -266,11 +266,11 @@ selection, and graphics items will display selected state.
 
 #### Stage 2: Edge selection
 
-- [ ] Give selected edges a solid orange pen.
-- [ ] Allow an edge to be selected only when both endpoints are selected.
-- [ ] Allow Ctrl-click to toggle an eligible edge.
-- [ ] Ensure deselecting either endpoint removes the edge from the selection.
-- [ ] Ensure clicking an ineligible edge cannot add it to the selection.
+- [x] Give selected edges a solid orange pen.
+- [x] Allow an edge to be selected only when both endpoints are selected.
+- [x] Allow Ctrl-click to toggle an eligible edge.
+- [x] Ensure deselecting either endpoint removes the edge from the selection.
+- [x] Ensure clicking an ineligible edge cannot add it to the selection.
 
 #### Stage 3: Rectangle selection
 
