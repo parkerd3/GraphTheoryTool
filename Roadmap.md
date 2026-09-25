@@ -295,20 +295,20 @@ selection, and graphics items will display selected state.
 
 #### Stage 4: Keyboard deletion
 
-- [ ] Handle `Delete` and `Backspace` in the scene or main window.
-- [ ] Delete selected edges without deleting their endpoint nodes.
-- [ ] Delete selected nodes and all incident edges.
-- [ ] Renumber visible node labels and refresh their graphics.
-- [ ] Clear selection entries for deleted objects.
+- [x] Handle `Delete` and `Backspace` in the scene or main window.
+- [x] Provide edge-only deletion without deleting endpoint nodes.
+- [x] Delete selected nodes and all incident edges.
+- [x] Renumber visible node labels and refresh their graphics.
+- [x] Clear selection entries for deleted objects.
 
 #### Stage 5: Moving nodes and groups
 
-- [ ] Make selected nodes draggable in Select mode.
-- [ ] Move every selected node by the same scene-coordinate delta.
-- [ ] Update model positions when a drag ends or changes.
-- [ ] Update connected edge lines continuously while nodes move.
-- [ ] Keep edges attached to stationary nodes stretched correctly.
-- [ ] Preserve the selection after the move is complete.
+- [x] Make selected nodes draggable in Select mode.
+- [x] Move every selected node by the same scene-coordinate delta.
+- [x] Update model positions when a drag ends or changes.
+- [x] Update connected edge lines continuously while nodes move.
+- [x] Keep edges attached to stationary nodes stretched correctly.
+- [x] Preserve the selection after the move is complete.
 
 #### Stage 6: Copy, cut, and paste
 

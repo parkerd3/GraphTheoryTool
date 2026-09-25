@@ -44,6 +44,14 @@ class MainWindow(QMainWindow):
         self.redo_action.triggered.connect(self.redo)
         self.addAction(self.redo_action)
 
+        self.delete_action = QAction("Delete selection", self)
+        self.delete_action.setShortcuts(
+            [QKeySequence("Delete"), QKeySequence("Backspace")]
+        )
+        self.delete_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self.delete_action.triggered.connect(self.delete_selected)
+        self.addAction(self.delete_action)
+
         # Code involving creating the canvas on the right.
         self.graph = Graph()
         self.scene = GraphScene(self.graph, self)
@@ -167,6 +175,7 @@ class MainWindow(QMainWindow):
         """Change the active canvas tool and configure basic view behavior."""
 
         self.scene.stop_erasing()
+        self.scene.stop_moving_nodes()
         self.scene.cancel_selection_rectangle()
         if mode != "pen":
             self.scene.clear_selected_node()
@@ -187,3 +196,8 @@ class MainWindow(QMainWindow):
         """Redo the most recently undone graph edit."""
 
         self.scene.redo()
+
+    def delete_selected(self) -> None:
+        """Delete the currently selected nodes using the active history."""
+
+        self.scene.delete_selection()

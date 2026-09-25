@@ -30,6 +30,16 @@ class NodeGraphicsItem(QGraphicsEllipseItem):
         self.setPen(NODE_PEN)
         self.setData(0, node_id)
 
+    def set_center(self, x: float, y: float) -> None:
+        """Move the visual circle so its center is at ``(x, y)``."""
+
+        self.setRect(
+            x - self.RADIUS,
+            y - self.RADIUS,
+            self.RADIUS * 2,
+            self.RADIUS * 2,
+        )
+
     def set_selected(self, selected: bool) -> None:
         """Update the node's selection appearance."""
 
@@ -53,6 +63,17 @@ class EdgeGraphicsItem(QGraphicsLineItem):
         self.target = target
         self.setPen(EDGE_PEN)
         self.setZValue(-1)
+
+    def set_endpoints(
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+    ) -> None:
+        """Update the line while its endpoint nodes move."""
+
+        self.setLine(x1, y1, x2, y2)
 
     def set_selected(self, selected: bool) -> None:
         """Update the edge's selection appearance."""

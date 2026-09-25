@@ -74,6 +74,10 @@ def test_main_window_registers_requested_shortcuts() -> None:
 
     assert window.undo_action.shortcut().toString() == "Ctrl+Z"
     assert window.redo_action.shortcut().toString() == "Ctrl+Shift+Z"
+    assert [shortcut.toString() for shortcut in window.delete_action.shortcuts()] == [
+        "Del",
+        "Backspace",
+    ]
     assert window.undo_button.toolTip().startswith("Undo")
     assert window.redo_button.toolTip().startswith("Redo")
     window.close()
@@ -127,3 +131,46 @@ def test_separate_eraser_clicks_undo_separately() -> None:
     assert scene.undo()
     assert [node.id for node in scene.graph.nodes] == [first.id, second.id]
     window.close()
+
+
+def test_selected_node_deletion_removes_incident_edges_and_relabels() -> None:
+    get_qapplication()
+    scene = GraphScene()
+    first = scene.graph.add_node(100, 100)
+    middle = scene.graph.add_node(300, 100)
+    last = scene.graph.add_node(500, 100)
+    for node in (first, middle, last):
+        scene.add_node_visual(node)
+    scene.add_edge_visual(scene.graph.add_edge(first.id, middle.id))
+    scene.add_edge_visual(scene.graph.add_edge(middle.id, last.id))
+
+    scene.selected_nodes = {middle.id}
+    scene._refresh_selection_visuals()
+    assert scene.delete_selection()
+
+    assert [node.id for node in scene.graph.nodes] == [first.id, last.id]
+    assert [node.label for node in scene.graph.nodes] == [1, 2]
+    assert len(scene.graph.edges) == 0
+    assert not scene.selected_nodes
+    assert not scene.selected_edges
+
+
+def test_selected_edge_only_deletion_preserves_nodes() -> None:
+    get_qapplication()
+    scene = GraphScene()
+    first = scene.graph.add_node(100, 100)
+    second = scene.graph.add_node(300, 100)
+    scene.add_node_visual(first)
+    scene.add_node_visual(second)
+    edge = scene.graph.add_edge(first.id, second.id)
+    scene.add_edge_visual(edge)
+
+    scene.selected_nodes = {first.id, second.id}
+    scene.selected_edges = {(first.id, second.id)}
+    scene._refresh_selection_visuals()
+    assert scene.delete_selected_edges_only()
+
+    assert len(scene.graph.nodes) == 2
+    assert len(scene.graph.edges) == 0
+    assert not scene.selected_nodes
+    assert not scene.selected_edges

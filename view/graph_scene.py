@@ -43,6 +43,9 @@ class GraphScene(QGraphicsScene):
         self.selection_start: QPointF | None = None
         self.selection_rect_item: QGraphicsRectItem | None = None
         self.selection_rect_ctrl = False
+        self.is_moving_nodes = False
+        self.move_last_position: QPointF | None = None
+        self.moving_node_ids: set[int] = set()
         self.node_items = {}
         self.edge_items = {}
         self.setSceneRect(0, 0, 1200, 800)
@@ -63,12 +66,23 @@ class GraphScene(QGraphicsScene):
                 if self._begin_selection_rectangle(position, event.modifiers()):
                     event.accept()
                     return
+                if self._begin_node_move(position, event.modifiers()):
+                    event.accept()
+                    return
                 self._handle_select_click(position, event.modifiers())
 
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         """Erase elements crossed while the left mouse button is held."""
+
+        if self.mode == "select" and self.is_moving_nodes:
+            if event.buttons() & Qt.MouseButton.LeftButton:
+                self._update_node_move(event.scenePos())
+                event.accept()
+                return
+
+            self.stop_moving_nodes()
 
         if self.mode == "select" and self.is_selecting_rect:
             if event.buttons() & Qt.MouseButton.LeftButton:
@@ -91,6 +105,11 @@ class GraphScene(QGraphicsScene):
         """End an erasing gesture when the left button is released."""
 
         if event.button() == Qt.MouseButton.LeftButton:
+            if self.mode == "select" and self.is_moving_nodes:
+                self.stop_moving_nodes()
+                event.accept()
+                return
+
             if self.mode == "select" and self.is_selecting_rect:
                 self._finish_selection_rectangle(event.scenePos())
                 event.accept()
@@ -108,6 +127,76 @@ class GraphScene(QGraphicsScene):
         self.is_erasing = False
         if was_erasing:
             self.history.commit_edit(self.graph)
+
+    def _begin_node_move(self, position, modifiers) -> bool:
+        """Begin moving the selected node group when a node is pressed."""
+
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
+            return False
+
+        node_id = self._node_id_at(position)
+        if node_id is None:
+            return False
+
+        if node_id not in self.selected_nodes:
+            self.selected_nodes = {node_id}
+            self.manually_deselected_edges.clear()
+            self._synchronize_selected_edges()
+            self._refresh_selection_visuals()
+
+        self.is_moving_nodes = True
+        self.move_last_position = QPointF(position)
+        self.moving_node_ids = set(self.selected_nodes)
+        self.history.begin_edit(self.graph)
+        return True
+
+    def _update_node_move(self, position) -> None:
+        """Move selected nodes by the cursor's scene-coordinate delta."""
+
+        if self.move_last_position is None:
+            return
+
+        delta_x = position.x() - self.move_last_position.x()
+        delta_y = position.y() - self.move_last_position.y()
+        if delta_x == 0 and delta_y == 0:
+            return
+
+        for node_id in self.moving_node_ids:
+            node = self.graph.get_node(node_id)
+            node.x += delta_x
+            node.y += delta_y
+            items = self.node_items.get(node_id)
+            if items is None:
+                continue
+            items["circle"].set_center(node.x, node.y)
+            self._center_label(node, items["label"])
+
+        self._refresh_edge_positions()
+        self.move_last_position = QPointF(position)
+
+    def _refresh_edge_positions(self) -> None:
+        """Update every edge line from the current model coordinates."""
+
+        for edge_item in self.edge_items.values():
+            source = self.graph.get_node(edge_item.source)
+            target = self.graph.get_node(edge_item.target)
+            edge_item.set_endpoints(
+                source.x,
+                source.y,
+                target.x,
+                target.y,
+            )
+
+    def stop_moving_nodes(self) -> None:
+        """Finish a node movement transaction and preserve its selection."""
+
+        if not self.is_moving_nodes:
+            return
+
+        self.is_moving_nodes = False
+        self.move_last_position = None
+        self.moving_node_ids.clear()
+        self.history.commit_edit(self.graph)
 
     def _begin_selection_rectangle(self, position, modifiers) -> bool:
         """Begin a rectangle only when the press starts on blank canvas."""
@@ -476,6 +565,45 @@ class GraphScene(QGraphicsScene):
         self.refresh_node_labels()
         self._synchronize_selected_edges()
         self._refresh_selection_visuals()
+
+    def delete_selection(self) -> bool:
+        """Delete selected nodes, or selected edges when no nodes are selected."""
+
+        if self.selected_nodes:
+            return self.delete_selected_nodes()
+        return self.delete_selected_edges_only()
+
+    def delete_selected_nodes(self) -> bool:
+        """Delete selected nodes and every edge incident to them."""
+
+        node_ids = tuple(self.selected_nodes)
+        if not node_ids:
+            return False
+
+        def delete_nodes() -> None:
+            for node_id in node_ids:
+                if node_id in self.node_items:
+                    self._delete_node_now(node_id)
+            self.clear_selection()
+
+        self._execute_edit(delete_nodes)
+        return True
+
+    def delete_selected_edges_only(self) -> bool:
+        """Delete selected edges while preserving their endpoint nodes."""
+
+        edge_keys = tuple(self.selected_edges)
+        if not edge_keys:
+            return False
+
+        def delete_edges() -> None:
+            for source, target in edge_keys:
+                if self._edge_key(source, target) in self.edge_items:
+                    self._delete_edge_now(source, target)
+            self.clear_selection()
+
+        self._execute_edit(delete_edges)
+        return True
 
     def refresh_node_labels(self) -> None:
         """Update visible label text and center labels after renumbering."""
