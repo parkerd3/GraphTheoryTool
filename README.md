@@ -5,8 +5,9 @@ An educational graph editor and matrix generator for experimenting with graph th
 ## Current status
 
 This repository contains the initial project structure and a minimal PySide6 window.
-The graph model and a few matrix functions are being built before the interactive
-canvas is expanded.
+The main GUI elements and object creation and manipulation are being implemented.
+Once user-interaction with the main canvas is mostly implemented, functions for
+constructing the associated matrices will be the main focus.
 
 ## Running the application
 
