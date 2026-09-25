@@ -274,11 +274,11 @@ selection, and graphics items will display selected state.
 
 #### Stage 3: Rectangle selection
 
-- [ ] Start a selection rectangle from blank canvas in Select mode.
-- [ ] Draw the rectangle while the mouse is held.
-- [ ] On release, select nodes whose center hitboxes intersect the rectangle.
-- [ ] Support Ctrl-drag to add to or subtract from the existing selection.
-- [ ] Recompute automatic edge selection after the rectangle is applied.
+- [x] Start a selection rectangle from blank canvas in Select mode.
+- [x] Draw the rectangle while the mouse is held.
+- [x] On release, select nodes whose small center hitboxes fit inside the rectangle.
+- [x] Support Ctrl-drag to add to or subtract from the existing selection.
+- [x] Recompute automatic edge selection after the rectangle is applied.
 
 #### Stage 4: Keyboard deletion
 

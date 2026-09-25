@@ -3,9 +3,10 @@
 The scene is intentionally small for the first milestone.  Node and edge
 graphics will be added after the model and window shell are in place.
 """
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtWidgets import (
     QGraphicsScene,
+    QGraphicsRectItem,
     QGraphicsTextItem,
     QGraphicsSceneMouseEvent,
 )
@@ -14,6 +15,8 @@ from .graph_items import (
     EdgeGraphicsItem,
     NodeGraphicsItem,
     NODE_BRUSH,
+    SELECTION_RECT_BRUSH,
+    SELECTION_RECT_PEN,
 )
 
 try:
@@ -35,6 +38,10 @@ class GraphScene(QGraphicsScene):
         self.selected_nodes: set[int] = set()
         self.selected_edges: set[tuple[int, int]] = set()
         self.manually_deselected_edges: set[tuple[int, int]] = set()
+        self.is_selecting_rect = False
+        self.selection_start: QPointF | None = None
+        self.selection_rect_item: QGraphicsRectItem | None = None
+        self.selection_rect_ctrl = False
         self.node_items = {}
         self.edge_items = {}
         self.setSceneRect(0, 0, 1200, 800)
@@ -51,12 +58,21 @@ class GraphScene(QGraphicsScene):
                 event.accept()
                 return
             elif self.mode == "select":
+                if self._begin_selection_rectangle(position, event.modifiers()):
+                    event.accept()
+                    return
                 self._handle_select_click(position, event.modifiers())
 
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         """Erase elements crossed while the left mouse button is held."""
+
+        if self.mode == "select" and self.is_selecting_rect:
+            if event.buttons() & Qt.MouseButton.LeftButton:
+                self._update_selection_rectangle(event.scenePos())
+                event.accept()
+                return
 
         if self.mode == "eraser" and self.is_erasing:
             if event.buttons() & Qt.MouseButton.LeftButton:
@@ -72,6 +88,11 @@ class GraphScene(QGraphicsScene):
         """End an erasing gesture when the left button is released."""
 
         if event.button() == Qt.MouseButton.LeftButton:
+            if self.mode == "select" and self.is_selecting_rect:
+                self._finish_selection_rectangle(event.scenePos())
+                event.accept()
+                return
+
             self.is_erasing = False
 
         super().mouseReleaseEvent(event)
@@ -80,6 +101,100 @@ class GraphScene(QGraphicsScene):
         """Cancel any active erasing gesture."""
 
         self.is_erasing = False
+
+    def _begin_selection_rectangle(self, position, modifiers) -> bool:
+        """Begin a rectangle only when the press starts on blank canvas."""
+
+        if self._node_id_at(position) is not None:
+            return False
+        if self._edge_key_at(position) is not None:
+            return False
+
+        self.is_selecting_rect = True
+        self.selection_start = QPointF(position)
+        self.selection_rect_ctrl = bool(
+            modifiers & Qt.KeyboardModifier.ControlModifier
+        )
+
+        self.selection_rect_item = QGraphicsRectItem(
+            QRectF(self.selection_start, self.selection_start)
+        )
+        self.selection_rect_item.setPen(SELECTION_RECT_PEN)
+        self.selection_rect_item.setBrush(SELECTION_RECT_BRUSH)
+        self.selection_rect_item.setZValue(10)
+        self.addItem(self.selection_rect_item)
+        return True
+
+    def _update_selection_rectangle(self, position) -> None:
+        """Resize the temporary rectangle to the current mouse position."""
+
+        if self.selection_start is None or self.selection_rect_item is None:
+            return
+
+        rectangle = QRectF(self.selection_start, position).normalized()
+        self.selection_rect_item.setRect(rectangle)
+
+    def _finish_selection_rectangle(self, position) -> None:
+        """Apply the rectangle selection and remove its temporary graphic."""
+
+        if self.selection_start is None:
+            self.cancel_selection_rectangle()
+            return
+
+        rectangle = QRectF(self.selection_start, position).normalized()
+        ctrl_held = self.selection_rect_ctrl
+        self.cancel_selection_rectangle()
+
+        if rectangle.width() < 3 and rectangle.height() < 3:
+            if not ctrl_held:
+                self.clear_selection()
+            return
+
+        self._apply_rectangle_selection(rectangle, ctrl_held)
+
+    def _apply_rectangle_selection(self, rectangle: QRectF, ctrl_held: bool) -> None:
+        """Select nodes whose small center hitboxes fit inside the rectangle."""
+
+        nodes_in_rectangle = {
+            node.id
+            for node in self.graph.nodes
+            if rectangle.contains(self._node_selection_hitbox(node))
+        }
+
+        if ctrl_held:
+            for node_id in nodes_in_rectangle:
+                if node_id in self.selected_nodes:
+                    self.selected_nodes.remove(node_id)
+                else:
+                    self.selected_nodes.add(node_id)
+        else:
+            self.selected_nodes = nodes_in_rectangle
+            self.manually_deselected_edges.clear()
+
+        self._synchronize_selected_edges()
+        self._refresh_selection_visuals()
+
+    @staticmethod
+    def _node_selection_hitbox(node) -> QRectF:
+        """Return a modest hitbox around a node center for rectangle selection."""
+
+        radius = 12
+        return QRectF(
+            node.x - radius,
+            node.y - radius,
+            radius * 2,
+            radius * 2,
+        )
+
+    def cancel_selection_rectangle(self) -> None:
+        """Remove an active selection rectangle without changing selection."""
+
+        if self.selection_rect_item is not None:
+            self.removeItem(self.selection_rect_item)
+        self.selection_rect_item = None
+        self.selection_start = None
+        self.selection_rect_ctrl = False
+        self.is_selecting_rect = False
 
     def _handle_pen_click(self, position) -> None:
         """Create nodes or connect two nodes according to the Pen workflow."""

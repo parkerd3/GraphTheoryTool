@@ -128,6 +128,7 @@ class MainWindow(QMainWindow):
         """Change the active canvas tool and configure basic view behavior."""
 
         self.scene.stop_erasing()
+        self.scene.cancel_selection_rectangle()
         if mode != "pen":
             self.scene.clear_selected_node()
         self.scene.mode = mode

@@ -1,5 +1,6 @@
 """Graphics items and their shared visual styles."""
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QPen
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
 
@@ -8,6 +9,8 @@ SELECTED_NODE_BRUSH = QBrush(QColor("#f28c28"))
 NODE_PEN = QPen(QColor("#16324f"), 2)
 EDGE_PEN = QPen(QColor("#4f6894"), 4)
 SELECTED_EDGE_PEN = QPen(QColor("#f28c28"), 4)
+SELECTION_RECT_PEN = QPen(QColor("#f28c28"), 1, Qt.PenStyle.DashLine)
+SELECTION_RECT_BRUSH = QBrush(QColor(242, 140, 40, 45))
 
 
 class NodeGraphicsItem(QGraphicsEllipseItem):

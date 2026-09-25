@@ -2,7 +2,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtWidgets import QApplication
 
 from GraphTheoryTool.view.graph_scene import GraphScene
@@ -123,3 +123,38 @@ def test_blank_click_clears_selection() -> None:
 
     assert scene.selected_nodes == set()
     assert scene.selected_edges == set()
+
+
+def test_rectangle_selection_uses_center_hitboxes() -> None:
+    get_qapplication()
+    scene = GraphScene()
+    first = scene.graph.add_node(100, 100)
+    second = scene.graph.add_node(300, 100)
+    third = scene.graph.add_node(500, 100)
+    for node in (first, second, third):
+        scene.add_node_visual(node)
+
+    edge = scene.graph.add_edge(first.id, second.id)
+    scene.add_edge_visual(edge)
+
+    scene._apply_rectangle_selection(QRectF(88, 88, 224, 24), False)
+
+    assert scene.selected_nodes == {first.id, second.id}
+    assert scene.selected_edges == {(first.id, second.id)}
+
+
+def test_ctrl_rectangle_toggles_nodes() -> None:
+    get_qapplication()
+    scene = GraphScene()
+    first = scene.graph.add_node(100, 100)
+    second = scene.graph.add_node(300, 100)
+    for node in (first, second):
+        scene.add_node_visual(node)
+
+    scene._apply_rectangle_selection(QRectF(88, 88, 24, 24), False)
+    scene._apply_rectangle_selection(QRectF(288, 88, 24, 24), True)
+
+    assert scene.selected_nodes == {first.id, second.id}
+
+    scene._apply_rectangle_selection(QRectF(88, 88, 24, 24), True)
+    assert scene.selected_nodes == {second.id}
