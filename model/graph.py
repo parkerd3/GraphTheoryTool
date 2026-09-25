@@ -29,6 +29,53 @@ class Graph:
     def edges(self) -> tuple[Edge, ...]:
         return tuple(self._edges)
 
+    def to_dict(self) -> dict:
+        """Return a complete serializable snapshot of the graph."""
+
+        return {
+            "nodes": [
+                {
+                    "id": node.id,
+                    "label": node.label,
+                    "x": node.x,
+                    "y": node.y,
+                }
+                for node in self.nodes
+            ],
+            "edges": [
+                {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "weight": edge.weight,
+                    "directed": edge.directed,
+                }
+                for edge in self.edges
+            ],
+        }
+
+    def restore_from_dict(self, data: dict) -> None:
+        """Replace this graph's contents with a serialized snapshot."""
+
+        restored = Graph()
+        for node in data.get("nodes", []):
+            restored.add_node(
+                node["x"],
+                node["y"],
+                node_id=node["id"],
+                label=node.get("label"),
+            )
+        for edge in data.get("edges", []):
+            restored.add_edge(
+                edge["source"],
+                edge["target"],
+                weight=edge.get("weight", 1.0),
+                directed=edge.get("directed", False),
+            )
+
+        self._nodes = restored._nodes
+        self._edges = restored._edges
+        self._next_id = restored._next_id
+
     def add_node(
         self,
         x: float,

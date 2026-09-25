@@ -280,6 +280,19 @@ selection, and graphics items will display selected state.
 - [x] Support Ctrl-drag to add to or subtract from the existing selection.
 - [x] Recompute automatic edge selection after the rectangle is applied.
 
+#### Stage 3.5: Undo and redo
+
+- [x] Add serializable graph snapshots.
+- [x] Add bounded undo and redo stacks.
+- [x] Record node and edge creation as graph edits.
+- [x] Record node and edge deletion as graph edits.
+- [x] Group an eraser drag into one history entry.
+- [x] Restore the scene graphics after undoing or redoing.
+- [x] Add `Ctrl+Z` and `Ctrl+Shift+Z` shortcuts.
+- [x] Add visible Undo and Redo controls beside the canvas toolbar.
+- [ ] Add history grouping for node and group movement.
+- [ ] Add history support for cut, paste, and transformations.
+
 #### Stage 4: Keyboard deletion
 
 - [ ] Handle `Delete` and `Backspace` in the scene or main window.

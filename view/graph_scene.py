@@ -20,9 +20,9 @@ from .graph_items import (
 )
 
 try:
-    from ..model import Graph
+    from ..model import Graph, HistoryManager
 except ImportError:  # Supports launching with ``python main.py``.
-    from model import Graph
+    from model import Graph, HistoryManager
 
 
 class GraphScene(QGraphicsScene):
@@ -31,6 +31,7 @@ class GraphScene(QGraphicsScene):
     def __init__(self, graph: Graph | None = None, parent=None) -> None:
         super().__init__(parent)
         self.graph = graph or Graph()
+        self.history = HistoryManager()
         self.mode = "pen"
         self.labels_visible = False
         self.selected_node_id: int | None = None
@@ -53,6 +54,7 @@ class GraphScene(QGraphicsScene):
             if self.mode == "pen":
                 self._handle_pen_click(position)
             elif self.mode == "eraser":
+                self.history.begin_edit(self.graph)
                 self._handle_eraser_click(position)
                 self.is_erasing = True
                 event.accept()
@@ -81,6 +83,7 @@ class GraphScene(QGraphicsScene):
                 return
 
             self.is_erasing = False
+            self.history.commit_edit(self.graph)
 
         super().mouseMoveEvent(event)
 
@@ -94,13 +97,17 @@ class GraphScene(QGraphicsScene):
                 return
 
             self.is_erasing = False
+            self.history.commit_edit(self.graph)
 
         super().mouseReleaseEvent(event)
 
     def stop_erasing(self) -> None:
         """Cancel any active erasing gesture."""
 
+        was_erasing = self.is_erasing
         self.is_erasing = False
+        if was_erasing:
+            self.history.commit_edit(self.graph)
 
     def _begin_selection_rectangle(self, position, modifiers) -> bool:
         """Begin a rectangle only when the press starts on blank canvas."""
@@ -205,25 +212,50 @@ class GraphScene(QGraphicsScene):
             if self.selected_node_id is not None:
                 self.clear_selected_node()
             else:
-                node = self.graph.add_node(position.x(), position.y())
-                self.add_node_visual(node)
-                print(
-                    f"New node created with ID {node.id}, label {node.label}, "
-                    f"at position ({node.x}, {node.y})"
-                )
+                self._execute_edit(lambda: self._create_node(position))
         elif self.selected_node_id is None:
             self.select_node(node_id)
         elif self.selected_node_id == node_id:
             self.clear_selected_node()
         else:
+            source_id = self.selected_node_id
             try:
-                edge = self.graph.add_edge(self.selected_node_id, node_id)
+                self._execute_edit(
+                    lambda: self._create_edge(source_id, node_id)
+                )
             except ValueError as error:
                 print(error)
-            else:
-                self.add_edge_visual(edge)
             finally:
                 self.clear_selected_node()
+
+    def _execute_edit(self, edit) -> None:
+        """Run one graph edit, or join it to an existing edit transaction."""
+
+        started_here = not self.history.has_pending_edit
+        if started_here:
+            self.history.begin_edit(self.graph)
+
+        try:
+            edit()
+        except Exception:
+            if started_here:
+                self.history.cancel_edit()
+            raise
+        else:
+            if started_here:
+                self.history.commit_edit(self.graph)
+
+    def _create_node(self, position) -> None:
+        node = self.graph.add_node(position.x(), position.y())
+        self.add_node_visual(node)
+        print(
+            f"New node created with ID {node.id}, label {node.label}, "
+            f"at position ({node.x}, {node.y})"
+        )
+
+    def _create_edge(self, source: int, target: int) -> None:
+        edge = self.graph.add_edge(source, target)
+        self.add_edge_visual(edge)
 
     def _handle_eraser_click(self, position) -> None:
         """Delete the node or edge under the cursor."""
@@ -403,6 +435,11 @@ class GraphScene(QGraphicsScene):
     def delete_edge(self, source: int, target: int) -> None:
         """Remove an edge from both the model and the scene."""
 
+        self._execute_edit(lambda: self._delete_edge_now(source, target))
+
+    def _delete_edge_now(self, source: int, target: int) -> None:
+        """Perform edge deletion without opening a history transaction."""
+
         key = self._edge_key(source, target)
         line = self.edge_items.pop(key, None)
         if line is None:
@@ -416,6 +453,11 @@ class GraphScene(QGraphicsScene):
 
     def delete_node(self, node_id: int) -> None:
         """Remove a node, its incident edges, and its graphics."""
+
+        self._execute_edit(lambda: self._delete_node_now(node_id))
+
+    def _delete_node_now(self, node_id: int) -> None:
+        """Perform node deletion without opening a history transaction."""
 
         if self.selected_node_id == node_id:
             self.clear_selected_node()
@@ -455,6 +497,45 @@ class GraphScene(QGraphicsScene):
             node.x - text_width / 2,
             node.y - text_height / 2,
         )
+
+    def rebuild_from_graph(self) -> None:
+        """Recreate all graphics from the current graph model."""
+
+        self.cancel_selection_rectangle()
+        self.clear()
+        self.node_items.clear()
+        self.edge_items.clear()
+
+        for node in self.graph.nodes:
+            self.add_node_visual(node)
+        for edge in self.graph.edges:
+            self.add_edge_visual(edge)
+
+    def undo(self) -> bool:
+        """Undo the most recent graph edit and rebuild the scene."""
+
+        self.stop_erasing()
+        self.cancel_selection_rectangle()
+        if not self.history.undo(self.graph):
+            return False
+
+        self.selected_node_id = None
+        self.clear_selection()
+        self.rebuild_from_graph()
+        return True
+
+    def redo(self) -> bool:
+        """Redo the most recently undone graph edit and rebuild the scene."""
+
+        self.stop_erasing()
+        self.cancel_selection_rectangle()
+        if not self.history.redo(self.graph):
+            return False
+
+        self.selected_node_id = None
+        self.clear_selection()
+        self.rebuild_from_graph()
+        return True
 
     @staticmethod
     def _edge_key(source: int, target: int) -> tuple[int, int]:

@@ -1,7 +1,7 @@
 """Main application window."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QAction, QKeySequence, QPainter
 from PySide6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
@@ -31,6 +31,18 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("GraphTheoryTool")
         self.resize(1100, 700)
+
+        self.undo_action = QAction("Undo", self)
+        self.undo_action.setShortcut(QKeySequence("Ctrl+Z"))
+        self.undo_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self.undo_action.triggered.connect(self.undo)
+        self.addAction(self.undo_action)
+
+        self.redo_action = QAction("Redo", self)
+        self.redo_action.setShortcut(QKeySequence("Ctrl+Shift+Z"))
+        self.redo_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self.redo_action.triggered.connect(self.redo)
+        self.addAction(self.redo_action)
 
         # Code involving creating the canvas on the right.
         self.graph = Graph()
@@ -75,10 +87,37 @@ class MainWindow(QMainWindow):
             self.tool_buttons[mode] = button
             toolbar_layout.addWidget(button)
 
+        history_controls = QWidget()
+        history_layout = QHBoxLayout(history_controls)
+        history_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.undo_button = QToolButton()
+        self.undo_button.setText("Undo")
+        self.undo_button.setToolTip("Undo the last graph edit (Ctrl+Z)")
+        self.undo_button.setAutoRaise(True)
+        self.undo_button.clicked.connect(self.undo)
+
+        self.redo_button = QToolButton()
+        self.redo_button.setText("Redo")
+        self.redo_button.setToolTip("Redo the last undone graph edit (Ctrl+Shift+Z)")
+        self.redo_button.setAutoRaise(True)
+        self.redo_button.clicked.connect(self.redo)
+
+        history_layout.addWidget(self.undo_button)
+        history_layout.addWidget(self.redo_button)
+
+        top_canvas_row = QWidget()
+        top_canvas_layout = QHBoxLayout(top_canvas_row)
+        top_canvas_layout.setContentsMargins(0, 0, 0, 0)
+        top_canvas_layout.addStretch()
+        top_canvas_layout.addWidget(toolbar)
+        top_canvas_layout.addStretch()
+        top_canvas_layout.addWidget(history_controls)
+
         self.canvas_container = QWidget()
         canvas_container_layout = QVBoxLayout(self.canvas_container)
         canvas_container_layout.setContentsMargins(0, 0, 0, 0)
-        canvas_container_layout.addWidget(toolbar)
+        canvas_container_layout.addWidget(top_canvas_row)
         canvas_container_layout.addWidget(self.canvas)
 
         self.tool_buttons["pen"].setChecked(True)
@@ -131,8 +170,20 @@ class MainWindow(QMainWindow):
         self.scene.cancel_selection_rectangle()
         if mode != "pen":
             self.scene.clear_selected_node()
+        if mode != "select":
+            self.scene.clear_selection()
         self.scene.mode = mode
         if mode == "hand":
             self.canvas.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         else:
             self.canvas.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+    def undo(self) -> None:
+        """Undo the most recent graph edit."""
+
+        self.scene.undo()
+
+    def redo(self) -> None:
+        """Redo the most recently undone graph edit."""
+
+        self.scene.redo()
