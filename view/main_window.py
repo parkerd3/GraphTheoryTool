@@ -1,6 +1,6 @@
 """Main application window."""
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QAction, QKeySequence, QPainter
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -22,6 +22,32 @@ try:
 except ImportError:  # Supports launching with ``python main.py``.
     from model import Graph
     from view.graph_scene import GraphScene
+
+
+class GraphCanvasView(QGraphicsView):
+    """Canvas view that forwards no-button hover positions to the scene."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.viewport().setMouseTracking(True)
+        self.viewport().installEventFilter(self)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self.viewport() and event.type() == QEvent.Type.MouseMove:
+            scene = self.scene()
+            if scene is not None:
+                scene._update_rotation_controls_hover(
+                    self.mapToScene(event.position().toPoint())
+                )
+        return super().eventFilter(watched, event)
+
+    def mouseMoveEvent(self, event) -> None:
+        scene = self.scene()
+        if scene is not None:
+            scene._update_rotation_controls_hover(
+                self.mapToScene(event.position().toPoint())
+            )
+        super().mouseMoveEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -73,9 +99,11 @@ class MainWindow(QMainWindow):
         # Code involving creating the canvas on the right.
         self.graph = Graph()
         self.scene = GraphScene(self.graph, self)
-        self.canvas = QGraphicsView(self.scene)
+        self.canvas = GraphCanvasView(self.scene)
         self.canvas.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.canvas.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.canvas.setMouseTracking(True)
+        self.canvas.viewport().setMouseTracking(True)
         # AI explained the difference between the scene and the canvas;
         # essentially the scene is like the world, and the view is like
         # the camera. That way we can visually pan around and such w/o
@@ -195,6 +223,7 @@ class MainWindow(QMainWindow):
         self.scene.stop_erasing()
         self.scene.stop_moving_nodes()
         self.scene.cancel_selection_rectangle()
+        self.scene.cancel_rotation_drag()
         if mode != "pen":
             self.scene.clear_selected_node()
         if mode != "select":

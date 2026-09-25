@@ -324,14 +324,17 @@ selection, and graphics items will display selected state.
 
 #### Stage 7: Context menus and transformations
 
-- [ ] Add a right-click context menu for selected elements.
-- [ ] Add “deselect all edges.”
-- [ ] Add “delete selected edges.”
-- [ ] Add “delete all connected edges.”
+- [x] Add a right-click context menu for selected elements.
+- [x] Add “deselect all edges.”
+- [x] Add “delete selected edges.”
+- [x] Add “delete all connected edges.”
 - [ ] Add horizontal and vertical reflection.
 - [ ] Preserve every edge attached to reflected nodes, including edges outside
       the selection.
-- [ ] Add rotation and other transformations after reflection is reliable.
+- [x] Add hover-activated rotation controls for multi-node selections, with a
+      dashed guide circle and draggable handle.
+- [x] Keep rotation as one undoable edit and update connected edges live.
+- [ ] Add other transformations after reflection is reliable.
 
 #### Stage 8: Interaction polish
 

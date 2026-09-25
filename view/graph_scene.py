@@ -3,21 +3,29 @@
 The scene is intentionally small for the first milestone.  Node and edge
 graphics will be added after the model and window shell are in place.
 """
+import math
 import json
 
 from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QBrush
 from PySide6.QtWidgets import (
     QApplication,
+    QGraphicsEllipseItem,
+    QGraphicsLineItem,
     QGraphicsScene,
     QGraphicsRectItem,
     QGraphicsTextItem,
-    QGraphicsSceneMouseEvent,
+    QMenu,
 )
 
 from .graph_items import (
     EdgeGraphicsItem,
     NodeGraphicsItem,
-    NODE_BRUSH,
+    ROTATION_CONTROL_GUIDE_BRUSH,
+    ROTATION_CONTROL_GUIDE_PEN,
+    ROTATION_CONTROL_HANDLE_BRUSH,
+    ROTATION_CONTROL_HANDLE_PEN,
+    ROTATION_CONTROL_STEM_PEN,
     SELECTION_RECT_BRUSH,
     SELECTION_RECT_PEN,
 )
@@ -33,6 +41,8 @@ class GraphScene(QGraphicsScene):
 
     CLIPBOARD_FORMAT = "GraphTheoryTool.fragment.v1"
     PASTE_OFFSET = (30.0, 30.0)
+    ROTATION_CONTROL_HOVER_RADIUS = 42.0
+    ROTATION_HANDLE_HIT_RADIUS = 12.0
 
     def __init__(self, graph: Graph | None = None, parent=None) -> None:
         super().__init__(parent)
@@ -54,6 +64,18 @@ class GraphScene(QGraphicsScene):
         self.moving_node_ids: set[int] = set()
         self._last_paste_clipboard_text: str | None = None
         self._paste_count = 0
+        self.rotation_controls_visible = False
+        self.is_rotating = False
+        self.rotation_center: QPointF | None = None
+        self.rotation_control_radius = 30.0
+        self.rotation_handle_distance = 30.0
+        self.rotation_handle_angle = -math.pi / 2
+        self.rotation_handle_item: QGraphicsEllipseItem | None = None
+        self.rotation_guide_item: QGraphicsEllipseItem | None = None
+        self.rotation_handle_line_item: QGraphicsLineItem | None = None
+        self.rotation_base_positions: dict[int, tuple[float, float]] = {}
+        self.rotation_last_angle: float | None = None
+        self.rotation_total_angle = 0.0
         self.node_items = {}
         self.edge_items = {}
         self.setSceneRect(0, 0, 1200, 800)
@@ -61,6 +83,19 @@ class GraphScene(QGraphicsScene):
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             position = event.scenePos()
+
+            if self.mode == "select" and self.rotation_controls_visible:
+                if self._rotation_handle_at(position):
+                    self._begin_rotation_drag(position)
+                    event.accept()
+                    return
+
+                if self._rotation_circle_at(position):
+                    self._begin_control_move(position)
+                    event.accept()
+                    return
+
+                self.hide_rotation_controls()
 
             if self.mode == "pen":
                 self._handle_pen_click(position)
@@ -84,6 +119,14 @@ class GraphScene(QGraphicsScene):
     def mouseMoveEvent(self, event) -> None:
         """Erase elements crossed while the left mouse button is held."""
 
+        if self.is_rotating:
+            if event.buttons() & Qt.MouseButton.LeftButton:
+                self._update_rotation(event.scenePos())
+                event.accept()
+                return
+
+            self.finish_rotation_drag()
+
         if self.mode == "select" and self.is_moving_nodes:
             if event.buttons() & Qt.MouseButton.LeftButton:
                 self._update_node_move(event.scenePos())
@@ -91,6 +134,7 @@ class GraphScene(QGraphicsScene):
                 return
 
             self.stop_moving_nodes()
+            self.hide_rotation_controls()
 
         if self.mode == "select" and self.is_selecting_rect:
             if event.buttons() & Qt.MouseButton.LeftButton:
@@ -107,14 +151,23 @@ class GraphScene(QGraphicsScene):
             self.is_erasing = False
             self.history.commit_edit(self.graph)
 
+        if not event.buttons():
+            self._update_rotation_controls_hover(event.scenePos())
+
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
         """End an erasing gesture when the left button is released."""
 
         if event.button() == Qt.MouseButton.LeftButton:
+            if self.is_rotating:
+                self.finish_rotation_drag()
+                event.accept()
+                return
+
             if self.mode == "select" and self.is_moving_nodes:
                 self.stop_moving_nodes()
+                self.hide_rotation_controls()
                 event.accept()
                 return
 
@@ -135,6 +188,337 @@ class GraphScene(QGraphicsScene):
         self.is_erasing = False
         if was_erasing:
             self.history.commit_edit(self.graph)
+
+    def contextMenuEvent(self, event) -> None:
+        """Show editing commands for a currently selected graph element."""
+
+        if not self._context_target_is_selected(event.scenePos()):
+            event.ignore()
+            return
+
+        menu = QMenu()
+        deselect_edges_action = menu.addAction("Deselect all edges")
+        delete_edges_action = menu.addAction("Delete selected edges")
+        delete_connected_action = menu.addAction("Delete all connected edges")
+        menu.addSeparator()
+        paste_nodes_action = menu.addAction("Paste nodes only")
+        paste_nodes_action.setEnabled(self._read_clipboard_fragment() is not None)
+
+        chosen_action = menu.exec(event.screenPos())
+        if chosen_action is deselect_edges_action:
+            self.deselect_all_edges()
+        elif chosen_action is delete_edges_action:
+            self.delete_selected_edges_only()
+        elif chosen_action is delete_connected_action:
+            self.delete_all_connected_edges()
+        elif chosen_action is paste_nodes_action:
+            self.paste_nodes_only()
+
+        event.accept()
+
+    def _context_target_is_selected(self, position: QPointF) -> bool:
+        """Return whether a selected node or edge is under ``position``."""
+
+        node_id = self._node_id_at(position)
+        if node_id is not None:
+            return node_id in self.selected_nodes
+
+        edge_key = self._edge_key_at(position)
+        return edge_key in self.selected_edges if edge_key is not None else False
+
+    def deselect_all_edges(self) -> None:
+        """Deselect selected edges without changing the selected nodes."""
+
+        self.manually_deselected_edges.update(self.selected_edges)
+        self.selected_edges.clear()
+        self._refresh_selection_visuals()
+
+    def delete_all_connected_edges(self) -> bool:
+        """Delete every edge incident to at least one selected node."""
+
+        edge_keys = tuple(
+            key
+            for key in self.edge_items
+            if key[0] in self.selected_nodes or key[1] in self.selected_nodes
+        )
+        if not edge_keys:
+            return False
+
+        def delete_edges() -> None:
+            for source, target in edge_keys:
+                if self._edge_key(source, target) in self.edge_items:
+                    self._delete_edge_now(source, target)
+            self.selected_edges.clear()
+            self.manually_deselected_edges.clear()
+            self._refresh_selection_visuals()
+
+        self._execute_edit(delete_edges)
+        return True
+
+    def _update_rotation_controls_hover(self, position: QPointF) -> None:
+        """Show the rotation controls only while hovering near a group center."""
+
+        if self.is_rotating or self.is_moving_nodes:
+            return
+        if self.mode != "select" or len(self.selected_nodes) < 2:
+            self.hide_rotation_controls()
+            return
+
+        center = self._selection_center()
+        if center is None:
+            self.hide_rotation_controls()
+            return
+
+        distance = math.hypot(
+            position.x() - center.x(),
+            position.y() - center.y(),
+        )
+        if distance <= self.ROTATION_CONTROL_HOVER_RADIUS:
+            self._show_rotation_controls(center)
+        else:
+            self.hide_rotation_controls()
+
+    def _show_rotation_controls(self, center: QPointF) -> None:
+        """Create or reposition the temporary rotation controls."""
+
+        if self.rotation_controls_visible:
+            self.rotation_center = center
+            self._update_rotation_control_geometry()
+            return
+
+        self.rotation_center = center
+        self.rotation_handle_angle = -math.pi / 2
+        self.rotation_handle_distance = self.rotation_control_radius
+
+        self.rotation_guide_item = QGraphicsEllipseItem(0, 0, 0, 0)
+        self.rotation_guide_item.setPen(ROTATION_CONTROL_GUIDE_PEN)
+        self.rotation_guide_item.setBrush(ROTATION_CONTROL_GUIDE_BRUSH)
+        self.rotation_guide_item.setZValue(20)
+        self.addItem(self.rotation_guide_item)
+
+        self.rotation_handle_line_item = QGraphicsLineItem(0, 0, 0, 0)
+        self.rotation_handle_line_item.setPen(ROTATION_CONTROL_STEM_PEN)
+        self.rotation_handle_line_item.setZValue(20)
+        self.addItem(self.rotation_handle_line_item)
+
+        self.rotation_handle_item = QGraphicsEllipseItem(0, 0, 0, 0)
+        self.rotation_handle_item.setPen(ROTATION_CONTROL_HANDLE_PEN)
+        self.rotation_handle_item.setBrush(ROTATION_CONTROL_HANDLE_BRUSH)
+        self.rotation_handle_item.setZValue(21)
+        self.addItem(self.rotation_handle_item)
+
+        self.rotation_controls_visible = True
+        self._update_rotation_control_geometry()
+
+    def _selection_center(self) -> QPointF | None:
+        """Return the bounding-box center of the selected nodes."""
+
+        nodes = [
+            node for node in self.graph.nodes if node.id in self.selected_nodes
+        ]
+        if not nodes:
+            return None
+
+        min_x = min(node.x for node in nodes)
+        max_x = max(node.x for node in nodes)
+        min_y = min(node.y for node in nodes)
+        max_y = max(node.y for node in nodes)
+        return QPointF((min_x + max_x) / 2, (min_y + max_y) / 2)
+
+    def _rotation_handle_at(self, position: QPointF) -> bool:
+        """Return whether a scene position is inside the rotation handle."""
+
+        if self.rotation_handle_item is None:
+            return False
+
+        center = self.rotation_handle_item.rect().center()
+        return (
+            math.hypot(position.x() - center.x(), position.y() - center.y())
+            <= self.ROTATION_HANDLE_HIT_RADIUS
+        )
+
+    def _rotation_circle_at(self, position: QPointF) -> bool:
+        """Return whether a position lies inside the small control circle."""
+
+        if self.rotation_center is None:
+            return False
+
+        return (
+            math.hypot(
+                position.x() - self.rotation_center.x(),
+                position.y() - self.rotation_center.y(),
+            )
+            <= self.rotation_control_radius
+        )
+
+    def _begin_control_move(self, position: QPointF) -> None:
+        """Begin moving the selected group from the rotation control circle."""
+
+        self.is_moving_nodes = True
+        self.move_last_position = QPointF(position)
+        self.moving_node_ids = set(self.selected_nodes)
+        self.history.begin_edit(self.graph)
+
+    def _begin_rotation_drag(self, position: QPointF) -> None:
+        """Begin one undoable rotation gesture from the guide handle."""
+
+        if self.rotation_center is None:
+            return
+
+        self.rotation_base_positions = {
+            node.id: (node.x, node.y)
+            for node in self.graph.nodes
+            if node.id in self.selected_nodes
+        }
+        self.is_rotating = True
+        self.rotation_last_angle = math.atan2(
+            position.y() - self.rotation_center.y(),
+            position.x() - self.rotation_center.x(),
+        )
+        self.rotation_total_angle = 0.0
+        self.history.begin_edit(self.graph)
+
+    def _update_rotation(self, position: QPointF) -> None:
+        """Rotate the selected nodes by the cursor's angular movement."""
+
+        if not self.is_rotating or self.rotation_center is None:
+            return
+
+        current_angle = math.atan2(
+            position.y() - self.rotation_center.y(),
+            position.x() - self.rotation_center.x(),
+        )
+        if self.rotation_last_angle is None:
+            self.rotation_last_angle = current_angle
+            return
+
+        angle_delta = current_angle - self.rotation_last_angle
+        if angle_delta > math.pi:
+            angle_delta -= 2 * math.pi
+        elif angle_delta < -math.pi:
+            angle_delta += 2 * math.pi
+
+        self.rotation_total_angle += angle_delta
+        self.rotation_last_angle = current_angle
+        cosine = math.cos(self.rotation_total_angle)
+        sine = math.sin(self.rotation_total_angle)
+
+        for node_id, (base_x, base_y) in self.rotation_base_positions.items():
+            relative_x = base_x - self.rotation_center.x()
+            relative_y = base_y - self.rotation_center.y()
+            node = self.graph.get_node(node_id)
+            node.x = (
+                self.rotation_center.x()
+                + relative_x * cosine
+                - relative_y * sine
+            )
+            node.y = (
+                self.rotation_center.y()
+                + relative_x * sine
+                + relative_y * cosine
+            )
+            items = self.node_items.get(node_id)
+            if items is not None:
+                items["circle"].set_center(node.x, node.y)
+                self._center_label(node, items["label"])
+
+        self._refresh_edge_positions()
+        handle_distance = math.hypot(
+            position.x() - self.rotation_center.x(),
+            position.y() - self.rotation_center.y(),
+        )
+        self.rotation_handle_distance = max(
+            self.rotation_control_radius,
+            handle_distance,
+        )
+        self._update_rotation_handle(current_angle)
+
+    def _update_rotation_handle(self, angle: float) -> None:
+        """Place the rotation handle and stem at a chosen angle and distance."""
+
+        if self.rotation_center is None or self.rotation_handle_item is None:
+            return
+
+        handle_radius = 8.0
+        self.rotation_handle_angle = angle
+        handle_x = self.rotation_center.x() + self.rotation_handle_distance * math.cos(angle)
+        handle_y = self.rotation_center.y() + self.rotation_handle_distance * math.sin(angle)
+        self.rotation_handle_item.setRect(
+            handle_x - handle_radius,
+            handle_y - handle_radius,
+            handle_radius * 2,
+            handle_radius * 2,
+        )
+
+        if self.rotation_handle_line_item is not None:
+            self.rotation_handle_line_item.setLine(
+                self.rotation_center.x(),
+                self.rotation_center.y(),
+                handle_x,
+                handle_y,
+            )
+
+    def _update_rotation_control_geometry(self) -> None:
+        """Keep the guide and handle centered on the selected group."""
+
+        if self.rotation_center is None or self.rotation_guide_item is None:
+            return
+
+        radius = self.rotation_control_radius
+        self.rotation_guide_item.setRect(
+            self.rotation_center.x() - radius,
+            self.rotation_center.y() - radius,
+            radius * 2,
+            radius * 2,
+        )
+        self._update_rotation_handle(self.rotation_handle_angle)
+
+    def finish_rotation_drag(self) -> None:
+        """Commit a rotation drag and hide its temporary controls."""
+
+        if self.is_rotating:
+            self.history.commit_edit(self.graph)
+        self.is_rotating = False
+        self.hide_rotation_controls()
+
+    def cancel_rotation_drag(self) -> None:
+        """Cancel a rotation drag, restoring its original node positions."""
+
+        if self.is_rotating:
+            for node_id, (x, y) in self.rotation_base_positions.items():
+                node = self.graph.get_node(node_id)
+                node.x = x
+                node.y = y
+                items = self.node_items.get(node_id)
+                if items is not None:
+                    items["circle"].set_center(x, y)
+                    self._center_label(node, items["label"])
+            self._refresh_edge_positions()
+            self.history.cancel_edit()
+
+        self.is_rotating = False
+        self.hide_rotation_controls()
+
+    def hide_rotation_controls(self) -> None:
+        """Remove the temporary controls without changing the graph."""
+
+        for item_name in (
+            "rotation_guide_item",
+            "rotation_handle_line_item",
+            "rotation_handle_item",
+        ):
+            item = getattr(self, item_name)
+            if item is not None:
+                self.removeItem(item)
+            setattr(self, item_name, None)
+
+        self.rotation_controls_visible = False
+        self.rotation_center = None
+        self.rotation_handle_distance = self.rotation_control_radius
+        self.rotation_handle_angle = -math.pi / 2
+        self.rotation_base_positions.clear()
+        self.rotation_last_angle = None
+        self.rotation_total_angle = 0.0
 
     def _begin_node_move(self, position, modifiers) -> bool:
         """Begin moving the selected node group when a node is pressed."""
@@ -180,6 +564,11 @@ class GraphScene(QGraphicsScene):
             self._center_label(node, items["label"])
 
         self._refresh_edge_positions()
+        if self.rotation_controls_visible and not self.is_rotating:
+            center = self._selection_center()
+            if center is not None:
+                self.rotation_center = center
+                self._update_rotation_control_geometry()
         self.move_last_position = QPointF(position)
 
     def _refresh_edge_positions(self) -> None:
@@ -448,6 +837,14 @@ class GraphScene(QGraphicsScene):
 
         for key, edge_item in self.edge_items.items():
             edge_item.set_selected(key in self.selected_edges)
+
+        if len(self.selected_nodes) < 2:
+            self.hide_rotation_controls()
+        elif self.rotation_controls_visible and not self.is_rotating:
+            center = self._selection_center()
+            if center is not None:
+                self.rotation_center = center
+                self._update_rotation_control_geometry()
 
     def _node_id_at(self, position) -> int | None:
         """Return the node ID under a scene position, if there is one."""
@@ -786,6 +1183,7 @@ class GraphScene(QGraphicsScene):
     def rebuild_from_graph(self) -> None:
         """Recreate all graphics from the current graph model."""
 
+        self.cancel_rotation_drag()
         self.cancel_selection_rectangle()
         self.clear()
         self.node_items.clear()
@@ -800,6 +1198,7 @@ class GraphScene(QGraphicsScene):
         """Undo the most recent graph edit and rebuild the scene."""
 
         self.stop_erasing()
+        self.cancel_rotation_drag()
         self.cancel_selection_rectangle()
         if not self.history.undo(self.graph):
             return False
@@ -813,6 +1212,7 @@ class GraphScene(QGraphicsScene):
         """Redo the most recently undone graph edit and rebuild the scene."""
 
         self.stop_erasing()
+        self.cancel_rotation_drag()
         self.cancel_selection_rectangle()
         if not self.history.redo(self.graph):
             return False
