@@ -112,6 +112,55 @@ def test_ineligible_edge_cannot_be_selected() -> None:
     assert scene.selected_edges == set()
 
 
+def test_ctrl_hover_previews_an_unselected_node() -> None:
+    get_qapplication()
+    scene = GraphScene()
+    first = scene.graph.add_node(100, 100)
+    second = scene.graph.add_node(300, 100)
+    scene.add_node_visual(first)
+    scene.add_node_visual(second)
+    scene.selected_nodes = {first.id}
+    scene._refresh_selection_visuals()
+
+    scene._update_ctrl_hover(
+        QPointF(300, 100),
+        Qt.KeyboardModifier.ControlModifier,
+    )
+
+    assert scene.hovered_node_id == second.id
+    assert scene.node_items[second.id]["circle"].pen().color().name() == "#f28c28"
+
+    scene._update_ctrl_hover(QPointF(300, 100), Qt.KeyboardModifier.NoModifier)
+    assert scene.hovered_node_id is None
+    assert scene.node_items[second.id]["circle"].pen().color().name() == "#16324f"
+
+
+def test_ctrl_hover_previews_an_eligible_edge() -> None:
+    get_qapplication()
+    scene = GraphScene()
+    first = scene.graph.add_node(100, 100)
+    second = scene.graph.add_node(300, 100)
+    scene.add_node_visual(first)
+    scene.add_node_visual(second)
+    edge = scene.graph.add_edge(first.id, second.id)
+    scene.add_edge_visual(edge)
+    scene.selected_nodes = {first.id, second.id}
+    scene._synchronize_selected_edges()
+    scene._refresh_selection_visuals()
+
+    scene._handle_select_click(
+        QPointF(200, 100),
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    scene._update_ctrl_hover(
+        QPointF(200, 100),
+        Qt.KeyboardModifier.ControlModifier,
+    )
+
+    assert scene.hovered_edge_key == (first.id, second.id)
+    assert scene.edge_items[(first.id, second.id)].pen().color().name() == "#f28c28"
+
+
 def test_blank_click_clears_selection() -> None:
     get_qapplication()
     scene = GraphScene()

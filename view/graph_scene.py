@@ -5,6 +5,7 @@ graphics will be added after the model and window shell are in place.
 """
 import math
 import json
+from itertools import combinations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush
@@ -43,18 +44,27 @@ class GraphScene(QGraphicsScene):
     PASTE_OFFSET = (30.0, 30.0)
     ROTATION_CONTROL_HOVER_RADIUS = 42.0
     ROTATION_HANDLE_HIT_RADIUS = 12.0
+    NODE_SELECTION_HITBOX_RADIUS = 12.0
 
     def __init__(self, graph: Graph | None = None, parent=None) -> None:
         super().__init__(parent)
         self.graph = graph or Graph()
         self.history = HistoryManager()
-        self.mode = "pen"
+        self.mode = "select"
         self.labels_visible = False
         self.selected_node_id: int | None = None
         self.is_erasing = False
         self.selected_nodes: set[int] = set()
         self.selected_edges: set[tuple[int, int]] = set()
         self.manually_deselected_edges: set[tuple[int, int]] = set()
+        self.hovered_node_id: int | None = None
+        self.hovered_edge_key: tuple[int, int] | None = None
+        self.last_cursor_position: QPointF | None = None
+        self.shift_creation_preview_node: NodeGraphicsItem | None = None
+        self.shift_creation_preview_label: QGraphicsTextItem | None = None
+        self.shift_creation_preview_edges: list[EdgeGraphicsItem] = []
+        self.shift_creation_preview_target_id: int | None = None
+        self.shift_creation_preview_visible = False
         self.is_selecting_rect = False
         self.selection_start: QPointF | None = None
         self.selection_rect_item: QGraphicsRectItem | None = None
@@ -83,6 +93,12 @@ class GraphScene(QGraphicsScene):
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             position = event.scenePos()
+
+            if self.mode == "select" and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self._update_shift_creation_preview(position, event.modifiers())
+                if self._commit_shift_creation(position):
+                    event.accept()
+                    return
 
             if self.mode == "select" and self.rotation_controls_visible:
                 if self._rotation_handle_at(position):
@@ -152,7 +168,11 @@ class GraphScene(QGraphicsScene):
             self.history.commit_edit(self.graph)
 
         if not event.buttons():
-            self._update_rotation_controls_hover(event.scenePos())
+            self.handle_hover_position(
+                event.scenePos(),
+                event.modifiers(),
+                event.buttons(),
+            )
 
         super().mouseMoveEvent(event)
 
@@ -189,10 +209,275 @@ class GraphScene(QGraphicsScene):
         if was_erasing:
             self.history.commit_edit(self.graph)
 
+    def keyPressEvent(self, event) -> None:
+        """Refresh modifier-driven previews when Shift changes state."""
+
+        if event.key() == Qt.Key.Key_Shift:
+            self.handle_modifier_change(event.modifiers())
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Escape:
+            self.cancel_shift_creation_preview()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event) -> None:
+        """Hide the Shift creation preview when Shift is released."""
+
+        if event.key() == Qt.Key.Key_Shift:
+            self.handle_modifier_change(event.modifiers())
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
+
+    def handle_hover_position(
+        self,
+        position: QPointF,
+        modifiers=Qt.KeyboardModifier.NoModifier,
+        buttons=Qt.MouseButton.NoButton,
+    ) -> None:
+        """Update hover previews and rotation controls for a cursor position."""
+
+        self.last_cursor_position = QPointF(position)
+        if buttons:
+            return
+        self._update_shift_creation_preview(position, modifiers)
+        self._update_ctrl_hover(position, modifiers)
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            self.hide_rotation_controls()
+        else:
+            self._update_rotation_controls_hover(position)
+
+    def handle_modifier_change(self, modifiers) -> None:
+        """Refresh hover-driven UI when a keyboard modifier changes."""
+
+        if self.last_cursor_position is not None:
+            self.handle_hover_position(self.last_cursor_position, modifiers)
+
+    def _update_shift_creation_preview(self, position: QPointF, modifiers) -> None:
+        """Show translucent node and edge previews for Shift creation gestures."""
+
+        shift_held = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        if self.mode != "select" or not shift_held:
+            self.cancel_shift_creation_preview()
+            return
+
+        target_id = self._node_id_at(position)
+        if target_id is None and self._edge_key_at(position) is not None:
+            self.cancel_shift_creation_preview()
+            return
+
+        source_ids = tuple(
+            sorted(node_id for node_id in self.selected_nodes if node_id in self.node_items)
+        )
+        target_position = position
+        if target_id is not None:
+            target = self.graph.get_node(target_id)
+            target_position = QPointF(target.x, target.y)
+
+        preview_pairs = tuple(
+            (source_id, target_id)
+            for source_id in source_ids
+            if target_id is not None
+            and source_id != target_id
+            and not self.graph.has_edge(source_id, target_id)
+        )
+
+        if target_id is not None and not preview_pairs:
+            self.cancel_shift_creation_preview()
+            return
+
+        self.cancel_shift_creation_preview()
+        if target_id is None:
+            self.shift_creation_preview_node = NodeGraphicsItem(
+                -1,
+                target_position.x(),
+                target_position.y(),
+            )
+            self.shift_creation_preview_node.setOpacity(0.45)
+            self.shift_creation_preview_node.setAcceptedMouseButtons(
+                Qt.MouseButton.NoButton
+            )
+            self.shift_creation_preview_node.setZValue(1)
+            self.addItem(self.shift_creation_preview_node)
+
+            if self.labels_visible:
+                preview_label = QGraphicsTextItem(str(len(self.graph.nodes) + 1))
+                preview_label.setDefaultTextColor(Qt.GlobalColor.black)
+                preview_label.setOpacity(0.45)
+                preview_label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+                preview_label.setData(0, -1)
+                text_width = preview_label.boundingRect().width()
+                text_height = preview_label.boundingRect().height()
+                preview_label.setPos(
+                    target_position.x() - text_width / 2,
+                    target_position.y() - text_height / 2,
+                )
+                preview_label.setZValue(2)
+                self.addItem(preview_label)
+                self.shift_creation_preview_label = preview_label
+
+        for source_id in source_ids:
+            if target_id is not None and source_id == target_id:
+                continue
+            if target_id is not None and self.graph.has_edge(source_id, target_id):
+                continue
+            source = self.graph.get_node(source_id)
+            edge_preview = EdgeGraphicsItem(
+                source_id,
+                target_id if target_id is not None else -1,
+                source.x,
+                source.y,
+                target_position.x(),
+                target_position.y(),
+            )
+            edge_preview.setOpacity(0.45)
+            edge_preview.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            self.addItem(edge_preview)
+            self.shift_creation_preview_edges.append(edge_preview)
+
+        self.shift_creation_preview_target_id = target_id
+        self.shift_creation_preview_visible = True
+
+    def _commit_shift_creation(self, position: QPointF) -> bool:
+        """Create a node and/or all missing edges represented by the preview."""
+
+        target_id = self._node_id_at(position)
+        if target_id is None and self._edge_key_at(position) is not None:
+            self.cancel_shift_creation_preview()
+            return False
+
+        source_ids = tuple(
+            sorted(node_id for node_id in self.selected_nodes if node_id in self.node_items)
+        )
+        if target_id is not None and not source_ids:
+            self.cancel_shift_creation_preview()
+            self._handle_select_click(position, Qt.KeyboardModifier.NoModifier)
+            return True
+
+        if target_id is not None:
+            missing_pairs = tuple(
+                (source_id, target_id)
+                for source_id in source_ids
+                if source_id != target_id
+                and not self.graph.has_edge(source_id, target_id)
+            )
+
+            self.selected_nodes.add(target_id)
+            if not missing_pairs:
+                self._synchronize_selected_edges()
+                self._refresh_selection_visuals()
+                self.cancel_shift_creation_preview()
+                return True
+
+            def connect_to_existing() -> None:
+                for source_id, destination_id in missing_pairs:
+                    if self.graph.has_edge(source_id, destination_id):
+                        continue
+                    edge = self.graph.add_edge(source_id, destination_id)
+                    self.add_edge_visual(edge)
+
+                self._synchronize_selected_edges()
+                self._refresh_selection_visuals()
+
+            self._execute_edit(connect_to_existing)
+            self.cancel_shift_creation_preview()
+            return True
+
+        new_node_position = QPointF(position)
+
+        def create_new_node() -> None:
+            node = self.graph.add_node(
+                new_node_position.x(),
+                new_node_position.y(),
+            )
+            self.add_node_visual(node)
+            self.selected_nodes.add(node.id)
+
+            for source_id in source_ids:
+                if self.graph.has_edge(source_id, node.id):
+                    continue
+                edge = self.graph.add_edge(source_id, node.id)
+                self.add_edge_visual(edge)
+
+            self._synchronize_selected_edges()
+            self._refresh_selection_visuals()
+
+        self._execute_edit(create_new_node)
+        self.cancel_shift_creation_preview()
+        return True
+
+    def cancel_shift_creation_preview(self) -> None:
+        """Remove temporary Shift-creation graphics without changing the graph."""
+
+        if self.shift_creation_preview_node is not None:
+            self.removeItem(self.shift_creation_preview_node)
+        self.shift_creation_preview_node = None
+
+        if self.shift_creation_preview_label is not None:
+            self.removeItem(self.shift_creation_preview_label)
+        self.shift_creation_preview_label = None
+
+        for edge_preview in self.shift_creation_preview_edges:
+            self.removeItem(edge_preview)
+        self.shift_creation_preview_edges.clear()
+        self.shift_creation_preview_target_id = None
+        self.shift_creation_preview_visible = False
+
+    def _update_ctrl_hover(self, position: QPointF, modifiers) -> None:
+        """Preview the object that Ctrl-click would add to the selection."""
+
+        ctrl_held = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+        hovered_node_id = None
+        hovered_edge_key = None
+
+        if ctrl_held:
+            node_id = self._node_id_at(position)
+            if node_id is not None and node_id not in self.selected_nodes:
+                hovered_node_id = node_id
+            elif node_id is None:
+                edge_key = self._edge_key_at(position)
+                if (
+                    edge_key is not None
+                    and edge_key not in self.selected_edges
+                    and edge_key[0] in self.selected_nodes
+                    and edge_key[1] in self.selected_nodes
+                ):
+                    hovered_edge_key = edge_key
+
+        if (
+            hovered_node_id == self.hovered_node_id
+            and hovered_edge_key == self.hovered_edge_key
+        ):
+            return
+
+        self._clear_ctrl_hover()
+        self.hovered_node_id = hovered_node_id
+        self.hovered_edge_key = hovered_edge_key
+        if hovered_node_id is not None:
+            self.node_items[hovered_node_id]["circle"].set_ctrl_hovered(True)
+        if hovered_edge_key is not None:
+            self.edge_items[hovered_edge_key].set_ctrl_hovered(True)
+
+    def _clear_ctrl_hover(self) -> None:
+        """Remove the Ctrl-hover preview from the current object."""
+
+        if self.hovered_node_id is not None:
+            items = self.node_items.get(self.hovered_node_id)
+            if items is not None:
+                items["circle"].set_ctrl_hovered(False)
+        if self.hovered_edge_key is not None:
+            edge_item = self.edge_items.get(self.hovered_edge_key)
+            if edge_item is not None:
+                edge_item.set_ctrl_hovered(False)
+        self.hovered_node_id = None
+        self.hovered_edge_key = None
+
     def contextMenuEvent(self, event) -> None:
         """Show editing commands for a currently selected graph element."""
 
-        if not self._context_target_is_selected(event.scenePos()):
+        if not self._prepare_context_target(event.scenePos()):
             event.ignore()
             return
 
@@ -200,6 +485,8 @@ class GraphScene(QGraphicsScene):
         deselect_edges_action = menu.addAction("Deselect all edges")
         delete_edges_action = menu.addAction("Delete selected edges")
         delete_connected_action = menu.addAction("Delete all connected edges")
+        connect_nodes_action = menu.addAction("Connect nodes")
+        connect_nodes_action.setEnabled(len(self.selected_nodes) >= 2)
         menu.addSeparator()
         paste_nodes_action = menu.addAction("Paste nodes only")
         paste_nodes_action.setEnabled(self._read_clipboard_fragment() is not None)
@@ -214,6 +501,8 @@ class GraphScene(QGraphicsScene):
             self.delete_selected_edges_only()
         elif chosen_action is delete_connected_action:
             self.delete_all_connected_edges()
+        elif chosen_action is connect_nodes_action:
+            self.connect_selected_nodes()
         elif chosen_action is paste_nodes_action:
             self.paste_nodes_only()
         elif chosen_action is reflect_horizontal_action:
@@ -222,6 +511,28 @@ class GraphScene(QGraphicsScene):
             self.reflect_vertical()
 
         event.accept()
+
+    def _prepare_context_target(self, position: QPointF) -> bool:
+        """Select an unselected target before opening its context menu."""
+
+        node_id = self._node_id_at(position)
+        if node_id is not None:
+            if node_id not in self.selected_nodes:
+                self.selected_nodes = {node_id}
+                self.manually_deselected_edges.clear()
+                self._synchronize_selected_edges()
+                self._refresh_selection_visuals()
+            return True
+
+        edge_key = self._edge_key_at(position)
+        if edge_key is None:
+            return False
+        if edge_key not in self.selected_edges:
+            self.selected_nodes = set(edge_key)
+            self.manually_deselected_edges.clear()
+            self._synchronize_selected_edges()
+            self._refresh_selection_visuals()
+        return True
 
     def _context_target_is_selected(self, position: QPointF) -> bool:
         """Return whether a selected node or edge is under ``position``."""
@@ -260,6 +571,39 @@ class GraphScene(QGraphicsScene):
             self._refresh_selection_visuals()
 
         self._execute_edit(delete_edges)
+        return True
+
+    def connect_selected_nodes(self) -> bool:
+        """Connect every selected node pair that is not already connected."""
+
+        node_ids = tuple(
+            sorted(node_id for node_id in self.selected_nodes if node_id in self.node_items)
+        )
+        if len(node_ids) < 2:
+            return False
+
+        missing_pairs = tuple(
+            (source, target)
+            for source, target in combinations(node_ids, 2)
+            if not self.graph.has_edge(source, target)
+        )
+        if not missing_pairs:
+            return False
+
+        def connect() -> None:
+            for source, target in missing_pairs:
+                # The model also rejects duplicates, but this check makes the
+                # intended behavior explicit before adding the visual item.
+                if self.graph.has_edge(source, target):
+                    continue
+                edge = self.graph.add_edge(source, target)
+                self.add_edge_visual(edge)
+
+            self._synchronize_selected_edges()
+            self._refresh_selection_visuals()
+
+        self.hide_rotation_controls()
+        self._execute_edit(connect)
         return True
 
     def reflect_horizontal(self) -> bool:
@@ -717,7 +1061,7 @@ class GraphScene(QGraphicsScene):
     def _node_selection_hitbox(node) -> QRectF:
         """Return a modest hitbox around a node center for rectangle selection."""
 
-        radius = 12
+        radius = GraphScene.NODE_SELECTION_HITBOX_RADIUS
         return QRectF(
             node.x - radius,
             node.y - radius,
@@ -780,10 +1124,6 @@ class GraphScene(QGraphicsScene):
     def _create_node(self, position) -> None:
         node = self.graph.add_node(position.x(), position.y())
         self.add_node_visual(node)
-        print(
-            f"New node created with ID {node.id}, label {node.label}, "
-            f"at position ({node.x}, {node.y})"
-        )
 
     def _create_edge(self, source: int, target: int) -> None:
         edge = self.graph.add_edge(source, target)
@@ -864,6 +1204,14 @@ class GraphScene(QGraphicsScene):
         self.manually_deselected_edges.clear()
         self._refresh_selection_visuals()
 
+    def select_all(self) -> None:
+        """Select every node and all edges between the selected nodes."""
+
+        self.selected_nodes = set(self.node_items)
+        self.manually_deselected_edges.clear()
+        self._synchronize_selected_edges()
+        self._refresh_selection_visuals()
+
     def _synchronize_selected_edges(self) -> None:
         """Select every edge whose two endpoints are selected."""
 
@@ -877,6 +1225,8 @@ class GraphScene(QGraphicsScene):
 
     def _refresh_selection_visuals(self) -> None:
         """Apply the current selection sets to all graphics items."""
+
+        self._clear_ctrl_hover()
 
         for node_id, items in self.node_items.items():
             items["circle"].set_selected(node_id in self.selected_nodes)
@@ -1229,6 +1579,7 @@ class GraphScene(QGraphicsScene):
     def rebuild_from_graph(self) -> None:
         """Recreate all graphics from the current graph model."""
 
+        self.cancel_shift_creation_preview()
         self.cancel_rotation_drag()
         self.cancel_selection_rectangle()
         self.clear()
@@ -1244,6 +1595,7 @@ class GraphScene(QGraphicsScene):
         """Undo the most recent graph edit and rebuild the scene."""
 
         self.stop_erasing()
+        self.cancel_shift_creation_preview()
         self.cancel_rotation_drag()
         self.cancel_selection_rectangle()
         if not self.history.undo(self.graph):
@@ -1258,6 +1610,7 @@ class GraphScene(QGraphicsScene):
         """Redo the most recently undone graph edit and rebuild the scene."""
 
         self.stop_erasing()
+        self.cancel_shift_creation_preview()
         self.cancel_rotation_drag()
         self.cancel_selection_rectangle()
         if not self.history.redo(self.graph):
@@ -1272,7 +1625,7 @@ class GraphScene(QGraphicsScene):
     def _edge_key(source: int, target: int) -> tuple[int, int]:
         """Return a consistent key for an undirected edge."""
 
-        return tuple(sorted((source, target)))
+        return (source, target) if source <= target else (target, source)
 
     def set_labels_visible(self, visible: bool) -> None:
         """Show or hide every node label currently in the scene."""

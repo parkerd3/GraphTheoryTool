@@ -339,16 +339,21 @@ selection, and graphics items will display selected state.
 
 #### Stage 8: Interaction polish
 
-- [ ] Add a Ctrl-hover orange outline for objects that would be selectable.
-- [ ] Tune the node selection hitbox and rectangle margin.
-- [ ] Make right-click behavior predictable when clicking selected versus
+- [x] Add a Ctrl-hover orange outline for objects that would be selectable.
+- [x] Tune the node selection hitbox and rectangle margin.
+- [x] Make right-click behavior predictable when clicking selected versus
       unselected elements.
-- [ ] Add undo/redo for selection-dependent edits.
-- [ ] Add automated tests for each selection invariant and editing command.
+- [x] Add undo/redo coverage for selection-dependent graph edits.
+- [x] Add automated tests for the selection invariants and editing commands.
+- [x] Add `Ctrl+A` to select every node and edge.
+- [x] Merge node creation and edge creation into the Select tool with Shift
+      gestures.
+- [x] Show translucent node and edge previews while a Shift gesture is armed.
+- [x] Create one new node and all requested connecting edges as one undoable
+      edit, while preventing duplicate edges.
 
 ### Recommended next milestone
 
-The next implementation should be Stage 8: interaction polish and usability
-improvements. The selection invariants, keyboard deletion, movement,
-undo/redo, clipboard operations, context menus, rotation, and reflection are
-now in place.
+Stages 0–8 now form a stable editing foundation. The next milestone can focus
+on graph analysis features: matrix generation, matrix previews, copying matrix
+data, and save/load workflows.

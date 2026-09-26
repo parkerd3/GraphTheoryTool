@@ -1,4 +1,5 @@
 import os
+from itertools import combinations
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -133,6 +134,40 @@ def test_horizontal_reflection_preserves_external_edges() -> None:
     assert second.y == 200
 
 
+def test_connect_selected_nodes_builds_complete_simple_subgraph() -> None:
+    get_qapplication()
+    scene = GraphScene()
+    nodes = [
+        scene.graph.add_node(100 + index * 100, 100)
+        for index in range(4)
+    ]
+    for node in nodes:
+        scene.add_node_visual(node)
+
+    existing_edge = scene.graph.add_edge(nodes[0].id, nodes[1].id)
+    scene.add_edge_visual(existing_edge)
+    scene.selected_nodes = {node.id for node in nodes}
+    scene._synchronize_selected_edges()
+    scene._refresh_selection_visuals()
+
+    assert scene.connect_selected_nodes()
+    expected_pairs = {
+        (source.id, target.id)
+        for source, target in combinations(nodes, 2)
+    }
+    assert len(scene.graph.edges) == 6
+    assert set(scene.edge_items) == expected_pairs
+    assert scene.selected_edges == expected_pairs
+
+    # Running the command again must not create duplicate edges or history.
+    assert not scene.connect_selected_nodes()
+    assert len(scene.graph.edges) == 6
+    assert scene.undo()
+    assert len(scene.graph.edges) == 1
+    assert scene.redo()
+    assert len(scene.graph.edges) == 6
+
+
 def test_vertical_reflection_uses_the_selection_center() -> None:
     scene = make_selected_pair()
     first = scene.graph.get_node(0)
@@ -160,6 +195,19 @@ def test_context_menu_requires_a_selected_target() -> None:
 
     scene.clear_selection()
     assert not scene._context_target_is_selected(QPointF(100, 100))
+
+
+def test_context_target_selection_is_predictable() -> None:
+    scene = make_selected_pair()
+    scene.clear_selection()
+
+    assert scene._prepare_context_target(QPointF(100, 100))
+    assert scene.selected_nodes == {0}
+    assert scene.selected_edges == set()
+
+    assert scene._prepare_context_target(QPointF(200, 100))
+    assert scene.selected_nodes == {0, 1}
+    assert scene.selected_edges == {(0, 1)}
 
 
 def test_hovering_over_a_real_selection_center_reveals_controls() -> None:

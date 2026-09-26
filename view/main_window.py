@@ -35,19 +35,51 @@ class GraphCanvasView(QGraphicsView):
     def eventFilter(self, watched, event) -> bool:
         if watched is self.viewport() and event.type() == QEvent.Type.MouseMove:
             scene = self.scene()
-            if scene is not None:
-                scene._update_rotation_controls_hover(
-                    self.mapToScene(event.position().toPoint())
+            if isinstance(scene, GraphScene):
+                scene.handle_hover_position(
+                    self.mapToScene(event.position().toPoint()),
+                    event.modifiers(),
+                    event.buttons(),
                 )
+        elif watched is self.viewport() and event.type() in (
+            QEvent.Type.KeyPress,
+            QEvent.Type.KeyRelease,
+        ):
+            scene = self.scene()
+            if isinstance(scene, GraphScene) and event.key() in (
+                Qt.Key.Key_Shift,
+                Qt.Key.Key_Escape,
+            ):
+                if event.key() == Qt.Key.Key_Escape:
+                    scene.cancel_shift_creation_preview()
+                else:
+                    scene.handle_modifier_change(event.modifiers())
         return super().eventFilter(watched, event)
 
     def mouseMoveEvent(self, event) -> None:
         scene = self.scene()
-        if scene is not None:
-            scene._update_rotation_controls_hover(
-                self.mapToScene(event.position().toPoint())
+        if isinstance(scene, GraphScene):
+            scene.handle_hover_position(
+                self.mapToScene(event.position().toPoint()),
+                event.modifiers(),
+                event.buttons(),
             )
         super().mouseMoveEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        scene = self.scene()
+        if isinstance(scene, GraphScene):
+            if event.key() == Qt.Key.Key_Escape:
+                scene.cancel_shift_creation_preview()
+            elif event.key() == Qt.Key.Key_Shift:
+                scene.handle_modifier_change(event.modifiers())
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event) -> None:
+        scene = self.scene()
+        if isinstance(scene, GraphScene) and event.key() == Qt.Key.Key_Shift:
+            scene.handle_modifier_change(event.modifiers())
+        super().keyReleaseEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -96,6 +128,12 @@ class MainWindow(QMainWindow):
         self.paste_action.triggered.connect(self.paste_selected)
         self.addAction(self.paste_action)
 
+        self.select_all_action = QAction("Select all", self)
+        self.select_all_action.setShortcut(QKeySequence("Ctrl+A"))
+        self.select_all_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self.select_all_action.triggered.connect(self.select_all)
+        self.addAction(self.select_all_action)
+
         # Code involving creating the canvas on the right.
         self.graph = Graph()
         self.scene = GraphScene(self.graph, self)
@@ -119,9 +157,12 @@ class MainWindow(QMainWindow):
         self.tool_buttons = {}
 
         tools = (
-            ("pen", "✎", "Pen tool: add nodes and connect nodes"),
+            (
+                "select",
+                "↖",
+                "Edit tool: select, move, create nodes, and connect nodes",
+            ),
             ("eraser", "⌫", "Eraser tool: delete graph elements"),
-            ("select", "↖", "Select tool: select and move graph elements"),
             ("hand", "✋", "Hand tool: pan the canvas"),
         )
 
@@ -174,8 +215,8 @@ class MainWindow(QMainWindow):
         canvas_container_layout.addWidget(top_canvas_row)
         canvas_container_layout.addWidget(self.canvas)
 
-        self.tool_buttons["pen"].setChecked(True)
-        self.set_canvas_mode("pen")
+        self.tool_buttons["select"].setChecked(True)
+        self.set_canvas_mode("select")
 
         controls = QWidget()
         controls.setMinimumWidth(230)
@@ -222,6 +263,7 @@ class MainWindow(QMainWindow):
 
         self.scene.stop_erasing()
         self.scene.stop_moving_nodes()
+        self.scene.cancel_shift_creation_preview()
         self.scene.cancel_selection_rectangle()
         self.scene.cancel_rotation_drag()
         if mode != "pen":
@@ -263,3 +305,8 @@ class MainWindow(QMainWindow):
         """Paste a graph fragment from the system clipboard."""
 
         self.scene.paste_selection()
+
+    def select_all(self) -> None:
+        """Select every node and eligible edge in the graph."""
+
+        self.scene.select_all()

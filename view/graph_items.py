@@ -7,8 +7,10 @@ from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
 NODE_BRUSH = QBrush(QColor("#4f86c6"))
 SELECTED_NODE_BRUSH = QBrush(QColor("#f28c28"))
 NODE_PEN = QPen(QColor("#16324f"), 2)
+CTRL_HOVER_NODE_PEN = QPen(QColor("#f28c28"), 3)
 EDGE_PEN = QPen(QColor("#4f6894"), 4)
 SELECTED_EDGE_PEN = QPen(QColor("#f28c28"), 4)
+CTRL_HOVER_EDGE_PEN = QPen(QColor("#f28c28"), 5, Qt.PenStyle.DashLine)
 SELECTION_RECT_PEN = QPen(QColor("#f28c28"), 1, Qt.PenStyle.DashLine)
 SELECTION_RECT_BRUSH = QBrush(QColor(242, 140, 40, 45))
 ROTATION_CONTROL_GUIDE_PEN = QPen(QColor(242, 140, 40, 170), 2, Qt.PenStyle.DashLine)
@@ -31,6 +33,8 @@ class NodeGraphicsItem(QGraphicsEllipseItem):
             self.RADIUS * 2,
         )
         self.node_id = node_id
+        self._selected = False
+        self._ctrl_hovered = False
         self.setBrush(NODE_BRUSH)
         self.setPen(NODE_PEN)
         self.setData(0, node_id)
@@ -48,7 +52,15 @@ class NodeGraphicsItem(QGraphicsEllipseItem):
     def set_selected(self, selected: bool) -> None:
         """Update the node's selection appearance."""
 
+        self._selected = selected
         self.setBrush(SELECTED_NODE_BRUSH if selected else NODE_BRUSH)
+        self.setPen(NODE_PEN if selected or not self._ctrl_hovered else CTRL_HOVER_NODE_PEN)
+
+    def set_ctrl_hovered(self, hovered: bool) -> None:
+        """Show whether Ctrl-click would select this node."""
+
+        self._ctrl_hovered = hovered
+        self.setPen(NODE_PEN if self._selected or not hovered else CTRL_HOVER_NODE_PEN)
 
 
 class EdgeGraphicsItem(QGraphicsLineItem):
@@ -66,6 +78,8 @@ class EdgeGraphicsItem(QGraphicsLineItem):
         super().__init__(x1, y1, x2, y2)
         self.source = source
         self.target = target
+        self._selected = False
+        self._ctrl_hovered = False
         self.setPen(EDGE_PEN)
         self.setZValue(-1)
 
@@ -83,4 +97,19 @@ class EdgeGraphicsItem(QGraphicsLineItem):
     def set_selected(self, selected: bool) -> None:
         """Update the edge's selection appearance."""
 
-        self.setPen(SELECTED_EDGE_PEN if selected else EDGE_PEN)
+        self._selected = selected
+        self.setPen(
+            SELECTED_EDGE_PEN
+            if selected
+            else EDGE_PEN if not self._ctrl_hovered else CTRL_HOVER_EDGE_PEN
+        )
+
+    def set_ctrl_hovered(self, hovered: bool) -> None:
+        """Show whether Ctrl-click would select this edge."""
+
+        self._ctrl_hovered = hovered
+        self.setPen(
+            SELECTED_EDGE_PEN
+            if self._selected
+            else EDGE_PEN if not hovered else CTRL_HOVER_EDGE_PEN
+        )

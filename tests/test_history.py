@@ -80,6 +80,34 @@ def test_main_window_registers_requested_shortcuts() -> None:
     ]
     assert window.undo_button.toolTip().startswith("Undo")
     assert window.redo_button.toolTip().startswith("Redo")
+    assert window.select_all_action.shortcut().toString() == "Ctrl+A"
+    window.close()
+
+
+def test_select_all_shortcut_selects_every_node_and_edge() -> None:
+    get_qapplication()
+    window = MainWindow()
+    scene = window.scene
+    first = scene.graph.add_node(100, 100)
+    second = scene.graph.add_node(300, 100)
+    third = scene.graph.add_node(500, 100)
+    for node in (first, second, third):
+        scene.add_node_visual(node)
+
+    first_edge = scene.graph.add_edge(first.id, second.id)
+    second_edge = scene.graph.add_edge(second.id, third.id)
+    scene.add_edge_visual(first_edge)
+    scene.add_edge_visual(second_edge)
+    scene.selected_nodes = {first.id}
+    scene._refresh_selection_visuals()
+
+    window.select_all_action.trigger()
+
+    assert scene.selected_nodes == {first.id, second.id, third.id}
+    assert scene.selected_edges == {
+        scene._edge_key(first.id, second.id),
+        scene._edge_key(second.id, third.id),
+    }
     window.close()
 
 
