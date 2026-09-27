@@ -2,7 +2,10 @@
 
 import numpy as np
 
-from ..model import Graph
+try:
+    from ..model import Graph
+except ImportError:  # Supports importing matrices from a direct ``main.py`` run.
+    from model import Graph
 from .adjacency import adjacency_matrix
 
 

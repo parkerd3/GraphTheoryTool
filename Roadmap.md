@@ -357,3 +357,13 @@ selection, and graphics items will display selected state.
 Stages 0–8 now form a stable editing foundation. The next milestone can focus
 on graph analysis features: matrix generation, matrix previews, copying matrix
 data, and save/load workflows.
+
+### Matrix generation progress
+
+- [x] Generate an adjacency matrix from the current graph.
+- [x] Display a readable, selectable adjacency-matrix preview.
+- [x] Copy the complete matrix as a Mathematica-compatible nested list.
+- [x] Display matrix dimensions in the control panel.
+- [x] Add degree, Laplacian, and Ihara matrix choices to the interface.
+- [ ] Add incidence, distance, and non-backtracking matrix choices to the
+      interface.

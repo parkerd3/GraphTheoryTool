@@ -8,7 +8,7 @@ import json
 from itertools import combinations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush
+from PySide6.QtGui import QBrush, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsEllipseItem,
@@ -48,7 +48,10 @@ class GraphScene(QGraphicsScene):
 
     def __init__(self, graph: Graph | None = None, parent=None) -> None:
         super().__init__(parent)
-        self.graph = graph or Graph()
+        # An empty Graph is falsey because Graph implements __len__.  Check
+        # explicitly for None so the scene keeps the model supplied by the
+        # main window even before the first node is created.
+        self.graph = graph if graph is not None else Graph()
         self.history = HistoryManager()
         self.mode = "select"
         self.labels_visible = False
@@ -304,6 +307,7 @@ class GraphScene(QGraphicsScene):
 
             if self.labels_visible:
                 preview_label = QGraphicsTextItem(str(len(self.graph.nodes) + 1))
+                self._style_node_label(preview_label)
                 preview_label.setDefaultTextColor(Qt.GlobalColor.black)
                 preview_label.setOpacity(0.45)
                 preview_label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
@@ -1284,6 +1288,7 @@ class GraphScene(QGraphicsScene):
         circle = NodeGraphicsItem(node.id, node.x, node.y)
 
         label = QGraphicsTextItem(str(node.label))
+        self._style_node_label(label)
         label.setDefaultTextColor(Qt.GlobalColor.black)
         label.setVisible(self.labels_visible)
         label.setData(0, node.id)
@@ -1303,6 +1308,15 @@ class GraphScene(QGraphicsScene):
             "circle": circle,
             "label": label,
         }
+
+    @staticmethod
+    def _style_node_label(label: QGraphicsTextItem) -> None:
+        """Apply the shared readable style to a node label."""
+
+        font = QFont(label.font())
+        font.setBold(True)
+        font.setPointSize(max(10, font.pointSize() + 1))
+        label.setFont(font)
 
     def add_edge_visual(self, edge) -> None:
         """Draw an edge between the positions of its endpoint nodes."""

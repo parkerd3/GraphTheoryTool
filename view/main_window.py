@@ -4,10 +4,11 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QAction, QKeySequence, QPainter
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QApplication,
+    QComboBox,
     QHBoxLayout,
     QCheckBox,
     QLabel,
-    QListWidget,
     QMainWindow,
     QSplitter,
     QToolButton,
@@ -17,11 +18,27 @@ from PySide6.QtWidgets import (
 )
 
 try:
+    from ..matrices import (
+        adjacency_matrix,
+        degree_matrix,
+        ihara_matrix,
+        laplacian_matrix,
+        matrix_to_mathematica,
+    )
     from ..model import Graph
     from .graph_scene import GraphScene
+    from .matrix_preview import MatrixPreviewTable
 except ImportError:  # Supports launching with ``python main.py``.
+    from matrices import (
+        adjacency_matrix,
+        degree_matrix,
+        ihara_matrix,
+        laplacian_matrix,
+        matrix_to_mathematica,
+    )
     from model import Graph
     from view.graph_scene import GraphScene
+    from view.matrix_preview import MatrixPreviewTable
 
 
 class GraphCanvasView(QGraphicsView):
@@ -227,17 +244,43 @@ class MainWindow(QMainWindow):
 
         self.matrix_button = QToolButton()
         self.matrix_button.setText("Generate matrix")
+        self.matrix_button.clicked.connect(self.generate_matrix)
+
+        self.matrix_type_combo = QComboBox()
+        self.matrix_type_combo.addItem("Adjacency matrix", "adjacency")
+        self.matrix_type_combo.addItem("Degree matrix", "degree")
+        self.matrix_type_combo.addItem("Laplacian matrix", "laplacian")
+        self.matrix_type_combo.addItem("Ihara matrix", "ihara")
+        self._matrix_generators = {
+            "adjacency": adjacency_matrix,
+            "degree": degree_matrix,
+            "laplacian": laplacian_matrix,
+            "ihara": ihara_matrix,
+        }
+
+        self.matrix_dimensions_label = QLabel("Dimensions: —")
+        self.matrix_preview = MatrixPreviewTable()
+
+        self.copy_matrix_button = QToolButton()
+        self.copy_matrix_button.setText("Copy matrix")
+        self.copy_matrix_button.setToolTip(
+            "Copy the complete matrix as a Mathematica-compatible list"
+        )
+        self.copy_matrix_button.setEnabled(False)
+        self.copy_matrix_button.clicked.connect(self.copy_matrix)
+
+        self._matrix_copy_text = ""
+
         self.show_labels_checkbox = QCheckBox("Show node labels")
         self.show_labels_checkbox.setChecked(False)
         self.show_labels_checkbox.toggled.connect(self.scene.set_labels_visible)
-        controls_layout.addWidget(self.matrix_button)
-        controls_layout.addWidget(self.show_labels_checkbox)
-        # Now those buttons actually live where they should: in the left panel.
-
-
-
         controls_layout.addWidget(QLabel("Matrices"))
-        controls_layout.addWidget(QListWidget())
+        controls_layout.addWidget(self.matrix_type_combo)
+        controls_layout.addWidget(self.matrix_button)
+        controls_layout.addWidget(self.matrix_dimensions_label)
+        controls_layout.addWidget(self.matrix_preview, 1)
+        controls_layout.addWidget(self.copy_matrix_button)
+        controls_layout.addWidget(self.show_labels_checkbox)
         controls_layout.addStretch()
 
         # This adds that handy feature of being able to resize windows by dragging their borders.
@@ -310,3 +353,26 @@ class MainWindow(QMainWindow):
         """Select every node and eligible edge in the graph."""
 
         self.scene.select_all()
+
+    def generate_matrix(self) -> None:
+        """Generate and display the matrix selected in the left panel."""
+
+        matrix_type = self.matrix_type_combo.currentData()
+        generator = self._matrix_generators.get(matrix_type)
+        if generator is None:
+            return
+
+        matrix = generator(self.graph)
+        self.matrix_preview.set_matrix(matrix)
+        rows, columns = matrix.shape
+        self.matrix_dimensions_label.setText(
+            f"Dimensions: {rows} × {columns}"
+        )
+        self._matrix_copy_text = matrix_to_mathematica(matrix)
+        self.copy_matrix_button.setEnabled(True)
+
+    def copy_matrix(self) -> None:
+        """Copy the complete generated matrix in Mathematica syntax."""
+
+        if self._matrix_copy_text:
+            QApplication.clipboard().setText(self._matrix_copy_text)
