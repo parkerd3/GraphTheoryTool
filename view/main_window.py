@@ -21,23 +21,29 @@ try:
     from ..matrices import (
         adjacency_matrix,
         degree_matrix,
+        directed_arcs,
         ihara_matrix,
         laplacian_matrix,
         matrix_to_mathematica,
+        nonbacktracking_matrix,
     )
     from ..model import Graph
     from .graph_scene import GraphScene
+    from .arc_scene import DirectedArcScene
     from .matrix_preview import MatrixPreviewTable
 except ImportError:  # Supports launching with ``python main.py``.
     from matrices import (
         adjacency_matrix,
         degree_matrix,
+        directed_arcs,
         ihara_matrix,
         laplacian_matrix,
         matrix_to_mathematica,
+        nonbacktracking_matrix,
     )
     from model import Graph
     from view.graph_scene import GraphScene
+    from view.arc_scene import DirectedArcScene
     from view.matrix_preview import MatrixPreviewTable
 
 
@@ -154,6 +160,8 @@ class MainWindow(QMainWindow):
         # Code involving creating the canvas on the right.
         self.graph = Graph()
         self.scene = GraphScene(self.graph, self)
+        self.arc_scene = DirectedArcScene(self.graph, self)
+        self.arc_view_active = False
         self.canvas = GraphCanvasView(self.scene)
         self.canvas.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.canvas.setDragMode(QGraphicsView.DragMode.NoDrag)
@@ -238,9 +246,6 @@ class MainWindow(QMainWindow):
         controls = QWidget()
         controls.setMinimumWidth(230)
         controls_layout = QVBoxLayout(controls)
-        
-        controls_layout.addWidget(QLabel("GraphTheoryTool"))
-        controls_layout.addWidget(QLabel("The control panel will grow with the project."))
 
         self.matrix_button = QToolButton()
         self.matrix_button.setText("Generate matrix")
@@ -251,11 +256,13 @@ class MainWindow(QMainWindow):
         self.matrix_type_combo.addItem("Degree matrix", "degree")
         self.matrix_type_combo.addItem("Laplacian matrix", "laplacian")
         self.matrix_type_combo.addItem("Ihara matrix", "ihara")
+        self.matrix_type_combo.addItem("Non-backtracking matrix", "nonbacktracking")
         self._matrix_generators = {
             "adjacency": adjacency_matrix,
             "degree": degree_matrix,
             "laplacian": laplacian_matrix,
             "ihara": ihara_matrix,
+            "nonbacktracking": nonbacktracking_matrix,
         }
 
         self.matrix_dimensions_label = QLabel("Dimensions: —")
@@ -274,14 +281,25 @@ class MainWindow(QMainWindow):
         self.show_labels_checkbox = QCheckBox("Show node labels")
         self.show_labels_checkbox.setChecked(False)
         self.show_labels_checkbox.toggled.connect(self.scene.set_labels_visible)
+        self.show_arc_view_checkbox = QCheckBox("Show directed arc view")
+        self.show_arc_view_checkbox.setToolTip(
+            "Inspect numbered arcs matching the non-backtracking matrix headers"
+        )
+        self.show_arc_view_checkbox.toggled.connect(self.set_arc_view)
+        self.matrix_type_combo.currentIndexChanged.connect(
+            self._update_arc_view_availability
+        )
+        self._update_arc_view_availability()
+
+        controls_layout.addWidget(QLabel("View"))
+        controls_layout.addWidget(self.show_labels_checkbox)
+        controls_layout.addWidget(self.show_arc_view_checkbox)
         controls_layout.addWidget(QLabel("Matrices"))
         controls_layout.addWidget(self.matrix_type_combo)
         controls_layout.addWidget(self.matrix_button)
+        controls_layout.addWidget(self.copy_matrix_button)
         controls_layout.addWidget(self.matrix_dimensions_label)
         controls_layout.addWidget(self.matrix_preview, 1)
-        controls_layout.addWidget(self.copy_matrix_button)
-        controls_layout.addWidget(self.show_labels_checkbox)
-        controls_layout.addStretch()
 
         # This adds that handy feature of being able to resize windows by dragging their borders.
         # This specific splitter lives between the left panel and the right canvas.
@@ -304,6 +322,9 @@ class MainWindow(QMainWindow):
     def set_canvas_mode(self, mode: str) -> None:
         """Change the active canvas tool and configure basic view behavior."""
 
+        if self.arc_view_active:
+            return
+
         self.scene.stop_erasing()
         self.scene.stop_moving_nodes()
         self.scene.cancel_shift_creation_preview()
@@ -318,6 +339,60 @@ class MainWindow(QMainWindow):
             self.canvas.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         else:
             self.canvas.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+    def _update_arc_view_availability(self) -> None:
+        """Allow the derived arc view only for non-backtracking matrices."""
+
+        available = self.matrix_type_combo.currentData() == "nonbacktracking"
+        if not available:
+            self.show_arc_view_checkbox.setChecked(False)
+        self.show_arc_view_checkbox.setEnabled(available)
+
+    def set_arc_view(self, visible: bool) -> None:
+        """Switch the canvas between graph editing and arc inspection."""
+
+        visible = visible and (
+            self.matrix_type_combo.currentData() == "nonbacktracking"
+        )
+        self.scene.stop_erasing()
+        self.scene.stop_moving_nodes()
+        self.scene.cancel_shift_creation_preview()
+        self.scene.cancel_selection_rectangle()
+        self.scene.cancel_rotation_drag()
+        self.arc_view_active = visible
+
+        if visible:
+            self.arc_scene.rebuild_from_graph()
+            self.arc_scene.setSceneRect(self.scene.sceneRect())
+            self.canvas.setScene(self.arc_scene)
+            self.canvas.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            self.tool_buttons["hand"].setChecked(True)
+            # Refresh the matrix with the exact same arc numbering as the view.
+            self.generate_matrix()
+        else:
+            self.canvas.setScene(self.scene)
+            self.tool_buttons[self.scene.mode].setChecked(True)
+            self.canvas.setDragMode(
+                QGraphicsView.DragMode.ScrollHandDrag
+                if self.scene.mode == "hand"
+                else QGraphicsView.DragMode.NoDrag
+            )
+
+        self.show_labels_checkbox.setEnabled(not visible)
+        self.tool_buttons["select"].setEnabled(not visible)
+        self.tool_buttons["eraser"].setEnabled(not visible)
+        for action in (
+            self.undo_action,
+            self.redo_action,
+            self.delete_action,
+            self.copy_action,
+            self.cut_action,
+            self.paste_action,
+            self.select_all_action,
+        ):
+            action.setEnabled(not visible)
+        self.undo_button.setEnabled(not visible)
+        self.redo_button.setEnabled(not visible)
 
     def undo(self) -> None:
         """Undo the most recent graph edit."""
@@ -370,6 +445,13 @@ class MainWindow(QMainWindow):
         )
         self._matrix_copy_text = matrix_to_mathematica(matrix)
         self.copy_matrix_button.setEnabled(True)
+        if matrix_type == "nonbacktracking":
+            for index, arc in enumerate(directed_arcs(self.graph)):
+                source = self.graph.get_node(arc.source).label
+                target = self.graph.get_node(arc.target).label
+                description = f"Arc {arc.index}: {source} → {target}"
+                self.matrix_preview.horizontalHeaderItem(index).setToolTip(description)
+                self.matrix_preview.verticalHeaderItem(index).setToolTip(description)
 
     def copy_matrix(self) -> None:
         """Copy the complete generated matrix in Mathematica syntax."""

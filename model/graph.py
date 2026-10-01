@@ -142,6 +142,7 @@ class Graph:
 
         if source == target:
             raise ValueError("Self-loops are not supported yet.")
+        
         self.get_node(source)
         self.get_node(target)
 

@@ -365,5 +365,8 @@ data, and save/load workflows.
 - [x] Copy the complete matrix as a Mathematica-compatible nested list.
 - [x] Display matrix dimensions in the control panel.
 - [x] Add degree, Laplacian, and Ihara matrix choices to the interface.
-- [ ] Add incidence, distance, and non-backtracking matrix choices to the
-      interface.
+- [x] Add non-backtracking matrices with shared directed-arc numbering.
+- [x] Add a View section with node-label and directed-arc-view controls.
+- [x] Add a read-only directed arc view with numbered curved arrows and
+      matching matrix-header tooltips; enable it only for non-backtracking matrices.
+- [ ] Add incidence and distance matrix choices to the interface.

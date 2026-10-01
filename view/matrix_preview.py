@@ -95,6 +95,10 @@ class MatrixPreviewTable(QTableWidget):
             for column in range(columns):
                 self.item(row, column).setText(format_scalar(array[row, column]))
 
+        for index in range(capacity):
+            self.horizontalHeaderItem(index).setToolTip("")
+            self.verticalHeaderItem(index).setToolTip("")
+
     def clear_matrix(self) -> None:
         """Clear matrix values while keeping the headers and grid visible."""
 

@@ -28,7 +28,7 @@ def test_main_window_generates_and_copies_adjacency_matrix() -> None:
     assert [
         window.matrix_type_combo.itemData(index)
         for index in range(window.matrix_type_combo.count())
-    ] == ["adjacency", "degree", "laplacian", "ihara"]
+    ] == ["adjacency", "degree", "laplacian", "ihara", "nonbacktracking"]
     first = window.graph.add_node(100, 100)
     second = window.graph.add_node(300, 100)
     window.scene.add_node_visual(first)

@@ -13,7 +13,7 @@ capabilities are pretty much all handled with NumPy.
 ## Current status
 
 The project is still pretty bare-bones, it currently only supports the
-generation of adjacency, degree, laplacian-adjacency matrices, and the Ihara
+generation of adjacency, degree, laplacian-adjacency, non-backtracking matrices, and the Ihara
 matrix which was central to the research project that this program was created
 for.
 
@@ -36,7 +36,10 @@ smooth and intuitive as possible.
 - Click with the Eraser tool to delete individual nodes or edges, you can also
   click and drag over elements with the eraser to delete them.
 - Move the canvas with the scrollbars on the sides, or with the hand tool.
-- Check the box in the bottom-left to display/hide the numbers on the nodes.
+- Check "Show node labels" in the View section to display/hide the numbers on the nodes.
+- With "Non-backtracking matrix" selected, check "Show directed arc view" to
+  inspect the two numbered directions of each edge. Node labels are hidden in
+  this view, and panning is available while graph editing is disabled.
 - Selected nodes can be transformed via reflection and rotation.
 - Right-click selected nodes to bring up a context menu where you can do things
   such as deselect/delete all edges connected to the selected nodes, or create
@@ -49,7 +52,7 @@ row and column. The checkered pattern organizes entries into groups of 5x5 for
 easier readability. 
 
 After selecting the type of matrix from the drop-down menu, press the "Generate
-Matrix" button to populate the grid. The button at the bottom will copy the
+Matrix" button to populate the grid. The "Copy matrix" button directly below it will copy the
 matrix to the clipboard in Mathematica syntax so you can paste it directly into
 mathematica and get its eigenvalues and other important information.
 
@@ -59,6 +62,15 @@ The matrix panel currently supports:
 - Degree matrices
 - Laplacian-adjacency matrices
 - Ihara matrices
+- Non-backtracking matrices
+
+For a graph with `m` undirected edges, the non-backtracking matrix has `2m`
+rows and columns, one per directed arc. An entry is 1 when the row arc can be
+followed by the column arc without immediately reversing direction. The arc
+numbers in the canvas match the matrix headers; hover over an arc or a header
+to see its source and target nodes. Turning on the arc view generates the
+matrix with the current arc numbering. Switching to another matrix type
+automatically returns to the graph editor.
 
 The Ihara matrix uses the block definition:
 
@@ -116,7 +128,6 @@ The next things I want to include are some basic matrix features such as:
 
 - Incidence matrices
 - Distance matrices
-- Non-backtracking matrices with explicit directed-edge labels
 - Full-size matrix viewing and export
 - More matrix formatting options
 - Save/load graphs
