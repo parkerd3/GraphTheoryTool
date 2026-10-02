@@ -13,7 +13,7 @@ except ImportError:  # Supports importing matrices from a direct ``main.py`` run
 
 
 @dataclass(frozen=True)
-class DirectedArc:
+class DirectedEdge:
     """A numbered orientation of a graph edge, derived without editing it."""
 
     index: int
@@ -21,7 +21,7 @@ class DirectedArc:
     target: int
 
 
-def directed_arcs(graph: Graph) -> tuple[DirectedArc, ...]:
+def directed_arcs(graph: Graph) -> tuple[DirectedEdge, ...]:
     """List arcs in edge-creation order, with reverse arcs immediately after.
 
     Arc indices start at 1 and correspond to matrix row and column headers.
@@ -30,9 +30,9 @@ def directed_arcs(graph: Graph) -> tuple[DirectedArc, ...]:
 
     arcs = []
     for edge in graph.edges:
-        arcs.append(DirectedArc(len(arcs) + 1, edge.source, edge.target))
+        arcs.append(DirectedEdge(len(arcs) + 1, edge.source, edge.target))
         if not edge.directed:
-            arcs.append(DirectedArc(len(arcs) + 1, edge.target, edge.source))
+            arcs.append(DirectedEdge(len(arcs) + 1, edge.target, edge.source))
     return tuple(arcs)
 
 
