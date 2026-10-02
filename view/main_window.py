@@ -1,7 +1,9 @@
 """Main application window."""
 
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QAction, QKeySequence, QPainter
+from pathlib import Path
+
+from PySide6.QtCore import QEvent, QSize, Qt
+from PySide6.QtGui import QAction, QIcon, QKeySequence, QPainter
 from PySide6.QtWidgets import (
     QButtonGroup,
     QApplication,
@@ -52,11 +54,44 @@ class GraphCanvasView(QGraphicsView):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.creation_controls: QWidget | None = None
         self.viewport().setMouseTracking(True)
         self.viewport().installEventFilter(self)
 
+    def set_creation_controls(self, controls: QWidget) -> None:
+        """Anchor a widget to the viewport's lower-left corner during panning."""
+
+        self.creation_controls = controls
+        controls.setParent(self.viewport())
+        controls.installEventFilter(self)
+        self._position_creation_controls()
+
+    def _position_creation_controls(self) -> None:
+        controls = getattr(self, "creation_controls", None)
+        if controls is not None:
+            controls.adjustSize()
+            controls.move(10, max(10, self.viewport().height() - controls.height() - 10))
+            controls.raise_()
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        super().scrollContentsBy(dx, dy)
+        # QGraphicsView scrolls viewport children too; restore the overlay's
+        # screen position after moving the scene contents.
+        self._position_creation_controls()
+
     def eventFilter(self, watched, event) -> bool:
-        if watched is self.viewport() and event.type() == QEvent.Type.MouseMove:
+        if watched is self.viewport() and event.type() == QEvent.Type.Resize:
+            self._position_creation_controls()
+        elif (
+            watched is self.creation_controls and event.type() == QEvent.Type.Enter
+        ) or (
+            watched is self.viewport() and event.type() == QEvent.Type.Leave
+        ):
+            scene = self.scene()
+            if isinstance(scene, GraphScene):
+                scene.cancel_shift_creation_preview()
+                scene.last_cursor_position = None
+        elif watched is self.viewport() and event.type() == QEvent.Type.MouseMove:
             scene = self.scene()
             if isinstance(scene, GraphScene):
                 scene.handle_hover_position(
@@ -167,6 +202,42 @@ class MainWindow(QMainWindow):
         self.canvas.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.canvas.setMouseTracking(True)
         self.canvas.viewport().setMouseTracking(True)
+
+        self.creation_controls = QWidget()
+        self.creation_controls.setAutoFillBackground(True)
+        creation_layout = QHBoxLayout(self.creation_controls)
+        creation_layout.setContentsMargins(4, 4, 4, 4)
+        creation_layout.setSpacing(4)
+        self.creation_mode_group = QButtonGroup(self)
+        self.creation_mode_group.setExclusive(True)
+        self.creation_mode_buttons: dict[str, QToolButton] = {}
+        creation_modes = (
+            ("loop", "Loop", "Shift-click: connect, then select only the target node"),
+            ("web", "Web", "Shift-click: connect, then add the target to the selection"),
+            ("points", "Points", "Shift-click: connect, then deselect all nodes"),
+            ("append", "Append", "Shift-click: connect while keeping the previous selection"),
+        )
+        for creation_mode, label, tooltip in creation_modes:
+            button = QToolButton()
+            button.setText(label)
+            button.setIcon(QIcon(str(Path(__file__).with_name("icons") / f"creation-{creation_mode}.svg")))
+            button.setIconSize(QSize(40, 40))
+            button.setFixedSize(48, 48)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setAccessibleName(f"{label} creation mode")
+            button.setToolTip(f"{label}: {tooltip}")
+            button.setCheckable(True)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.clicked.connect(
+                lambda checked=False, chosen_mode=creation_mode: self.set_creation_mode(
+                    chosen_mode
+                )
+            )
+            self.creation_mode_group.addButton(button)
+            self.creation_mode_buttons[creation_mode] = button
+            creation_layout.addWidget(button)
+        self.creation_mode_buttons[self.scene.creation_mode].setChecked(True)
+        self.canvas.set_creation_controls(self.creation_controls)
         # AI explained the difference between the scene and the canvas;
         # essentially the scene is like the world, and the view is like
         # the camera. That way we can visually pan around and such w/o
@@ -339,6 +410,21 @@ class MainWindow(QMainWindow):
             self.canvas.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         else:
             self.canvas.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self._update_creation_controls_availability()
+
+    def set_creation_mode(self, mode: str) -> None:
+        """Switch Shift-click behavior without changing the current selection."""
+
+        if self.arc_view_active or self.scene.mode != "select":
+            return
+        self.scene.set_creation_mode(mode)
+        self.creation_mode_buttons[mode].setChecked(True)
+        self.canvas.setFocus()
+
+    def _update_creation_controls_availability(self) -> None:
+        self.creation_controls.setEnabled(
+            self.scene.mode == "select" and not self.arc_view_active
+        )
 
     def _update_arc_view_availability(self) -> None:
         """Allow the derived arc view only for non-backtracking matrices."""
@@ -393,6 +479,7 @@ class MainWindow(QMainWindow):
             action.setEnabled(not visible)
         self.undo_button.setEnabled(not visible)
         self.redo_button.setEnabled(not visible)
+        self._update_creation_controls_availability()
 
     def undo(self) -> None:
         """Undo the most recent graph edit."""

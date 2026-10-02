@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Web creation mode</title>
+  <path d="M32 10 L54.825 26.584 L46.107 53.416 L17.893 53.416 L9.175 26.584 Z
+           M32 10 L46.107 53.416 M32 10 L17.893 53.416
+           M54.825 26.584 L17.893 53.416 M54.825 26.584 L9.175 26.584
+           M46.107 53.416 L9.175 26.584"
+        fill="none" stroke="#f28c28" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#f28c28" stroke="#16324f" stroke-width="1.1">
+    <circle cx="32" cy="10" r="4.6"/>
+    <circle cx="54.825" cy="26.584" r="4.6"/>
+    <circle cx="46.107" cy="53.416" r="4.6"/>
+    <circle cx="17.893" cy="53.416" r="4.6"/>
+    <circle cx="9.175" cy="26.584" r="4.6"/>
+  </g>
+</svg>

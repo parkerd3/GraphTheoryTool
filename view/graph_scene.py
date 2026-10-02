@@ -45,6 +45,7 @@ class GraphScene(QGraphicsScene):
     ROTATION_CONTROL_HOVER_RADIUS = 42.0
     ROTATION_HANDLE_HIT_RADIUS = 12.0
     NODE_SELECTION_HITBOX_RADIUS = 12.0
+    CREATION_MODES = ("loop", "web", "points", "append")
 
     def __init__(self, graph: Graph | None = None, parent=None) -> None:
         super().__init__(parent)
@@ -54,6 +55,7 @@ class GraphScene(QGraphicsScene):
         self.graph = graph if graph is not None else Graph()
         self.history = HistoryManager()
         self.mode = "select"
+        self.creation_mode = "loop"
         self.labels_visible = False
         self.selected_node_id: int | None = None
         self.is_erasing = False
@@ -344,6 +346,27 @@ class GraphScene(QGraphicsScene):
         self.shift_creation_preview_target_id = target_id
         self.shift_creation_preview_visible = True
 
+    def set_creation_mode(self, mode: str) -> None:
+        """Choose how a Shift-click updates selection after connecting nodes."""
+
+        if mode not in self.CREATION_MODES:
+            raise ValueError(f"Unknown creation mode: {mode}")
+        self.cancel_shift_creation_preview()
+        self.creation_mode = mode
+
+    def _apply_creation_selection(self, target_id: int) -> None:
+        """Apply the same selection rule to a new or existing target node."""
+
+        if self.creation_mode == "loop":
+            self.selected_nodes = {target_id}
+        elif self.creation_mode == "web":
+            self.selected_nodes.add(target_id)
+        elif self.creation_mode == "points":
+            self.selected_nodes.clear()
+        # Append leaves the previous node selection intact.
+        self._synchronize_selected_edges()
+        self._refresh_selection_visuals()
+
     def _commit_shift_creation(self, position: QPointF) -> bool:
         """Create a node and/or all missing edges represented by the preview."""
 
@@ -355,11 +378,6 @@ class GraphScene(QGraphicsScene):
         source_ids = tuple(
             sorted(node_id for node_id in self.selected_nodes if node_id in self.node_items)
         )
-        if target_id is not None and not source_ids:
-            self.cancel_shift_creation_preview()
-            self._handle_select_click(position, Qt.KeyboardModifier.NoModifier)
-            return True
-
         if target_id is not None:
             missing_pairs = tuple(
                 (source_id, target_id)
@@ -368,10 +386,8 @@ class GraphScene(QGraphicsScene):
                 and not self.graph.has_edge(source_id, target_id)
             )
 
-            self.selected_nodes.add(target_id)
             if not missing_pairs:
-                self._synchronize_selected_edges()
-                self._refresh_selection_visuals()
+                self._apply_creation_selection(target_id)
                 self.cancel_shift_creation_preview()
                 return True
 
@@ -382,8 +398,7 @@ class GraphScene(QGraphicsScene):
                     edge = self.graph.add_edge(source_id, destination_id)
                     self.add_edge_visual(edge)
 
-                self._synchronize_selected_edges()
-                self._refresh_selection_visuals()
+                self._apply_creation_selection(target_id)
 
             self._execute_edit(connect_to_existing)
             self.cancel_shift_creation_preview()
@@ -397,7 +412,6 @@ class GraphScene(QGraphicsScene):
                 new_node_position.y(),
             )
             self.add_node_visual(node)
-            self.selected_nodes.add(node.id)
 
             for source_id in source_ids:
                 if self.graph.has_edge(source_id, node.id):
@@ -405,8 +419,7 @@ class GraphScene(QGraphicsScene):
                 edge = self.graph.add_edge(source_id, node.id)
                 self.add_edge_visual(edge)
 
-            self._synchronize_selected_edges()
-            self._refresh_selection_visuals()
+            self._apply_creation_selection(node.id)
 
         self._execute_edit(create_new_node)
         self.cancel_shift_creation_preview()

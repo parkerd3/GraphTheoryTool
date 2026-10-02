@@ -30,6 +30,18 @@ smooth and intuitive as possible.
 - `Shift`-click the canvas to create a node.
 - With nodes selected, `Shift`-click the canvas or another node to connect
   all selected nodes in one gesture.
+- Choose the Shift-click mode using the graph pictograms in the canvas's
+  lower-left corner; hover over a button to see its mode name. The same
+  rule applies when creating a node or clicking an existing node, after all
+  missing connections are created:
+
+  - **Loop** (startup default): select only the target node, making chains and
+    loops easy to draw.
+  - **Web**: add the target to the existing selection.
+  - **Points**: deselect all nodes, making subsequent clicks place isolated nodes.
+  - **Append**: keep the previous selection without adding the target.
+- Changing creation modes preserves the current selection. The mode is
+  remembered when switching tools or returning from the directed arc view.
 - Click on a node to select it, or click and drag to select multiple elements.
 - Hold `Ctrl` to add or remove elements from the selection.
 - Click and drag selected nodes to move them around the canvas.
