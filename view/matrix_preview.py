@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor, QKeySequence
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QBrush, QColor, QKeySequence, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -26,10 +26,6 @@ class MatrixPreviewTable(QTableWidget):
     INITIAL_SIZE = 15
     CELL_SIZE = 30
     BLOCK_SIZE = 5
-    # Keep the checkerboard subtle and close to the dark palette inherited
-    # from the operating system's current Qt theme.
-    LIGHT_CELL = QColor("#343434")
-    DARK_CELL = QColor("#2d2d2d")
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -128,12 +124,46 @@ class MatrixPreviewTable(QTableWidget):
                 else:
                     item.setText("")
                 item.setFont(self._entry_font)
-                color = (
-                    self.LIGHT_CELL
-                    if (row // self.BLOCK_SIZE + column // self.BLOCK_SIZE) % 2 == 0
-                    else self.DARK_CELL
-                )
-                item.setBackground(QBrush(color))
+        self._apply_checkerboard()
+
+    def _apply_checkerboard(self) -> None:
+        """Recolor existing cells from the theme without changing their contents."""
+
+        palette = self.palette()
+        base = palette.brush(QPalette.ColorRole.Base)
+        alternate = palette.brush(QPalette.ColorRole.AlternateBase)
+        if base.color() == alternate.color():
+            # Some themes supply identical backgrounds. A little of the theme's
+            # text color makes the alternate block darker in light mode and
+            # lighter in dark mode, without introducing an app-wide palette.
+            background = base.color()
+            text = palette.color(QPalette.ColorRole.Text)
+            alternate = QBrush(QColor.fromRgbF(
+                background.redF() * 0.95 + text.redF() * 0.05,
+                background.greenF() * 0.95 + text.greenF() * 0.05,
+                background.blueF() * 0.95 + text.blueF() * 0.05,
+                background.alphaF(),
+            ))
+
+        for row in range(self.rowCount()):
+            for column in range(self.columnCount()):
+                item = self.item(row, column)
+                if item is not None:
+                    item.setBackground(
+                        base
+                        if (row // self.BLOCK_SIZE + column // self.BLOCK_SIZE) % 2 == 0
+                        else alternate
+                    )
+
+    def changeEvent(self, event) -> None:
+        """Follow palette changes, including system light/dark theme switches."""
+
+        super().changeEvent(event)
+        if event.type() in (
+            QEvent.Type.PaletteChange,
+            QEvent.Type.ApplicationPaletteChange,
+        ):
+            self._apply_checkerboard()
 
     def keyPressEvent(self, event) -> None:
         """Copy selected cells as tab-separated text for manual workflows."""

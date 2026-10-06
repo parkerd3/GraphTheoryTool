@@ -25,7 +25,8 @@ smooth and intuitive as possible.
 
 ### Graph editor
 
-- Create nodes and edges with the Edit tool.
+- Create nodes and edges with the Edit tool. Edit, Eraser, and Hand controls
+  sit at the top-center of the canvas; Undo and Redo sit at the top-right.
 - Hold `Shift` while hovering to preview a node or connecting edges.
 - `Shift`-click the canvas to create a node.
 - With nodes selected, `Shift`-click the canvas or another node to connect
@@ -48,7 +49,8 @@ smooth and intuitive as possible.
 - Click with the Eraser tool to delete individual nodes or edges, you can also
   click and drag over elements with the eraser to delete them.
 - Move the canvas with the scrollbars on the sides, or with the hand tool.
-- Check "Show node labels" in the View section to display/hide the numbers on the nodes.
+- Check "Show Labels" at the top-left of the canvas to display/hide the numbers
+  on the nodes.
 - With "Non-backtracking matrix" selected, check "Show directed arc view" to
   inspect the two numbered directions of each edge. Node labels are hidden in
   this view, and panning is available while graph editing is disabled.
@@ -64,9 +66,10 @@ row and column. The checkered pattern organizes entries into groups of 5x5 for
 easier readability. 
 
 After selecting the type of matrix from the drop-down menu, press the "Generate
-Matrix" button to populate the grid. The "Copy matrix" button directly below it will copy the
-matrix to the clipboard in Mathematica syntax so you can paste it directly into
-mathematica and get its eigenvalues and other important information.
+Matrix" button to populate the grid. Next to "Copy matrix", select "Mathematica"
+for curly-brace syntax or "Python" for square-bracket syntax. The button copies
+the generated matrix as a nested list in the selected format. Mathematica is
+selected by default, and switching formats does not require regenerating the matrix.
 
 The matrix panel currently supports:
 

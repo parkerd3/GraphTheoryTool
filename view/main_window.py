@@ -12,10 +12,12 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QLabel,
     QMainWindow,
+    QRadioButton,
     QSplitter,
     QToolButton,
     QVBoxLayout,
     QGraphicsView,
+    QGraphicsOpacityEffect,
     QWidget,
 )
 
@@ -27,6 +29,7 @@ try:
         ihara_matrix,
         laplacian_matrix,
         matrix_to_mathematica,
+        matrix_to_python,
         nonbacktracking_matrix,
     )
     from ..model import Graph
@@ -41,6 +44,7 @@ except ImportError:  # Supports launching with ``python main.py``.
         ihara_matrix,
         laplacian_matrix,
         matrix_to_mathematica,
+        matrix_to_python,
         nonbacktracking_matrix,
     )
     from model import Graph
@@ -55,35 +59,104 @@ class GraphCanvasView(QGraphicsView):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.creation_controls: QWidget | None = None
+        self._overlay_controls: dict[str, QWidget] = {}
+        self._overlay_widgets: set[QWidget] = set()
         self.viewport().setMouseTracking(True)
         self.viewport().installEventFilter(self)
+        self.creation_hint = QLabel("Hold Shift to create", self.viewport())
+        self.creation_hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.creation_hint.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        hint_font = self.creation_hint.font()
+        hint_font.setPointSize(max(12, hint_font.pointSize() + 2))
+        self.creation_hint.setFont(hint_font)
+        opacity = QGraphicsOpacityEffect(self.creation_hint)
+        opacity.setOpacity(0.4)
+        self.creation_hint.setGraphicsEffect(opacity)
+        if self.scene() is not None:
+            self.scene().changed.connect(self._update_creation_hint)
+        self._update_creation_hint()
+        self._position_canvas_controls()
+
+    def setScene(self, scene) -> None:
+        """Keep the empty-canvas hint in sync when switching canvas scenes."""
+
+        if hasattr(self, "creation_hint") and self.scene() is not None:
+            self.scene().changed.disconnect(self._update_creation_hint)
+        super().setScene(scene)
+        if hasattr(self, "creation_hint"):
+            if scene is not None:
+                scene.changed.connect(self._update_creation_hint)
+            self._update_creation_hint()
+
+    def _update_creation_hint(self) -> None:
+        """Only editable, truly empty graphs need the creation prompt."""
+
+        scene = self.scene()
+        self.creation_hint.setVisible(
+            isinstance(scene, GraphScene) and len(scene.graph) == 0
+        )
 
     def set_creation_controls(self, controls: QWidget) -> None:
         """Anchor a widget to the viewport's lower-left corner during panning."""
 
         self.creation_controls = controls
-        controls.setParent(self.viewport())
-        controls.installEventFilter(self)
-        self._position_creation_controls()
+        self.add_overlay_controls(controls, "bottom-left")
 
-    def _position_creation_controls(self) -> None:
-        controls = getattr(self, "creation_controls", None)
-        if controls is not None:
+    def add_overlay_controls(self, controls: QWidget, anchor: str) -> None:
+        """Place native controls over the canvas without adding scene items."""
+
+        self._overlay_controls[anchor] = controls
+        controls.setParent(self.viewport())
+        for widget in (controls, *controls.findChildren(QWidget)):
+            widget.installEventFilter(self)
+            self._overlay_widgets.add(widget)
+        self._position_canvas_controls()
+
+    def _position_canvas_controls(self) -> None:
+        overlays = getattr(self, "_overlay_controls", {})
+        for anchor, controls in overlays.items():
             controls.adjustSize()
-            controls.move(10, max(10, self.viewport().height() - controls.height() - 10))
+            if anchor == "top-center":
+                x = (self.viewport().width() - controls.width()) // 2
+            elif anchor == "top-right":
+                x = self.viewport().width() - controls.width() - 10
+            else:
+                x = 10
+            y = (
+                self.viewport().height() - controls.height() - 10
+                if anchor == "bottom-left" else 10
+            )
+            controls.move(max(10, x), max(10, y))
             controls.raise_()
+
+        hint = getattr(self, "creation_hint", None)
+        if hint is not None:
+            hint.adjustSize()
+            hint.move(
+                (self.viewport().width() - hint.width()) // 2,
+                (self.viewport().height() - hint.height()) // 2,
+            )
+
+        if all(anchor in overlays for anchor in ("top-left", "top-center", "top-right")):
+            # Leave room for the centered tools and both corner panels, even
+            # when the sidebar grows or the window is narrowed.
+            corner_width = max(overlays["top-left"].width(), overlays["top-right"].width())
+            viewport_width = overlays["top-center"].width() + 2 * corner_width + 40
+            self.setMinimumWidth(
+                viewport_width + 2 * self.frameWidth() + self.verticalScrollBar().sizeHint().width()
+            )
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:
         super().scrollContentsBy(dx, dy)
         # QGraphicsView scrolls viewport children too; restore the overlay's
         # screen position after moving the scene contents.
-        self._position_creation_controls()
+        self._position_canvas_controls()
 
     def eventFilter(self, watched, event) -> bool:
         if watched is self.viewport() and event.type() == QEvent.Type.Resize:
-            self._position_creation_controls()
+            self._position_canvas_controls()
         elif (
-            watched is self.creation_controls and event.type() == QEvent.Type.Enter
+            watched in self._overlay_widgets and event.type() == QEvent.Type.Enter
         ) or (
             watched is self.viewport() and event.type() == QEvent.Type.Leave
         ):
@@ -91,6 +164,19 @@ class GraphCanvasView(QGraphicsView):
             if isinstance(scene, GraphScene):
                 scene.cancel_shift_creation_preview()
                 scene.last_cursor_position = None
+        elif watched in self._overlay_widgets and event.type() == QEvent.Type.ContextMenu:
+            return True
+        elif (
+            watched in self._overlay_widgets
+            and event.type() in (
+                QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease,
+                QEvent.Type.MouseButtonDblClick,
+            )
+            and (watched in self._overlay_controls.values() or not watched.isEnabled())
+        ):
+            # Empty panel margins and disabled controls must not send clicks
+            # through to the graph underneath.
+            return True
         elif watched is self.viewport() and event.type() == QEvent.Type.MouseMove:
             scene = self.scene()
             if isinstance(scene, GraphScene):
@@ -243,9 +329,10 @@ class MainWindow(QMainWindow):
         # the camera. That way we can visually pan around and such w/o
         # messing with the actual location data of the graph object.
 
-        toolbar = QWidget()
-        toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(0, 0, 0, 0)
+        self.tool_controls = QWidget()
+        self.tool_controls.setAutoFillBackground(True)
+        toolbar_layout = QHBoxLayout(self.tool_controls)
+        toolbar_layout.setContentsMargins(4, 4, 4, 4)
         toolbar_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.tool_group = QButtonGroup(self)
@@ -269,6 +356,7 @@ class MainWindow(QMainWindow):
             button.setCheckable(True)
             button.setAutoRaise(True)
             button.setFixedWidth(48)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             button.clicked.connect(
                 lambda checked=False, selected_mode=mode: self.set_canvas_mode(
                     selected_mode
@@ -278,37 +366,46 @@ class MainWindow(QMainWindow):
             self.tool_buttons[mode] = button
             toolbar_layout.addWidget(button)
 
-        history_controls = QWidget()
-        history_layout = QHBoxLayout(history_controls)
-        history_layout.setContentsMargins(0, 0, 0, 0)
+        self.history_controls = QWidget()
+        self.history_controls.setAutoFillBackground(True)
+        history_layout = QHBoxLayout(self.history_controls)
+        history_layout.setContentsMargins(4, 4, 4, 4)
 
         self.undo_button = QToolButton()
         self.undo_button.setText("Undo")
         self.undo_button.setToolTip("Undo the last graph edit (Ctrl+Z)")
         self.undo_button.setAutoRaise(True)
+        self.undo_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.undo_button.clicked.connect(self.undo)
 
         self.redo_button = QToolButton()
         self.redo_button.setText("Redo")
         self.redo_button.setToolTip("Redo the last undone graph edit (Ctrl+Shift+Z)")
         self.redo_button.setAutoRaise(True)
+        self.redo_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.redo_button.clicked.connect(self.redo)
 
         history_layout.addWidget(self.undo_button)
         history_layout.addWidget(self.redo_button)
 
-        top_canvas_row = QWidget()
-        top_canvas_layout = QHBoxLayout(top_canvas_row)
-        top_canvas_layout.setContentsMargins(0, 0, 0, 0)
-        top_canvas_layout.addStretch()
-        top_canvas_layout.addWidget(toolbar)
-        top_canvas_layout.addStretch()
-        top_canvas_layout.addWidget(history_controls)
+        self.label_controls = QWidget()
+        self.label_controls.setAutoFillBackground(True)
+        label_layout = QHBoxLayout(self.label_controls)
+        label_layout.setContentsMargins(4, 4, 4, 4)
+        self.show_labels_checkbox = QCheckBox("Show Labels")
+        self.show_labels_checkbox.setToolTip("Show or hide node labels")
+        self.show_labels_checkbox.setChecked(False)
+        self.show_labels_checkbox.toggled.connect(self.scene.set_labels_visible)
+        self.show_labels_checkbox.clicked.connect(lambda checked=False: self.canvas.setFocus())
+        label_layout.addWidget(self.show_labels_checkbox)
+
+        self.canvas.add_overlay_controls(self.tool_controls, "top-center")
+        self.canvas.add_overlay_controls(self.history_controls, "top-right")
+        self.canvas.add_overlay_controls(self.label_controls, "top-left")
 
         self.canvas_container = QWidget()
         canvas_container_layout = QVBoxLayout(self.canvas_container)
         canvas_container_layout.setContentsMargins(0, 0, 0, 0)
-        canvas_container_layout.addWidget(top_canvas_row)
         canvas_container_layout.addWidget(self.canvas)
 
         self.tool_buttons["select"].setChecked(True)
@@ -342,16 +439,28 @@ class MainWindow(QMainWindow):
         self.copy_matrix_button = QToolButton()
         self.copy_matrix_button.setText("Copy matrix")
         self.copy_matrix_button.setToolTip(
-            "Copy the complete matrix as a Mathematica-compatible list"
+            "Copy the complete matrix using the selected list syntax"
         )
         self.copy_matrix_button.setEnabled(False)
         self.copy_matrix_button.clicked.connect(self.copy_matrix)
 
-        self._matrix_copy_text = ""
+        self.matrix_copy_format_group = QButtonGroup(self)
+        self.matrix_copy_format_group.setExclusive(True)
+        self.mathematica_radio = QRadioButton("Mathematica")
+        self.python_radio = QRadioButton("Python")
+        self.mathematica_radio.setToolTip("Copy a nested list using curly braces")
+        self.python_radio.setToolTip("Copy a nested list using square brackets")
+        self.matrix_copy_format_group.addButton(self.mathematica_radio)
+        self.matrix_copy_format_group.addButton(self.python_radio)
+        self.mathematica_radio.setChecked(True)
+        copy_layout = QHBoxLayout()
+        copy_layout.addWidget(self.copy_matrix_button)
+        copy_layout.addWidget(self.mathematica_radio)
+        copy_layout.addWidget(self.python_radio)
+        copy_layout.addStretch()
 
-        self.show_labels_checkbox = QCheckBox("Show node labels")
-        self.show_labels_checkbox.setChecked(False)
-        self.show_labels_checkbox.toggled.connect(self.scene.set_labels_visible)
+        self._matrix_copy_texts: dict[str, str] = {}
+
         self.show_arc_view_checkbox = QCheckBox("Show directed arc view")
         self.show_arc_view_checkbox.setToolTip(
             "Inspect numbered arcs matching the non-backtracking matrix headers"
@@ -363,12 +472,11 @@ class MainWindow(QMainWindow):
         self._update_arc_view_availability()
 
         controls_layout.addWidget(QLabel("View"))
-        controls_layout.addWidget(self.show_labels_checkbox)
         controls_layout.addWidget(self.show_arc_view_checkbox)
         controls_layout.addWidget(QLabel("Matrices"))
         controls_layout.addWidget(self.matrix_type_combo)
         controls_layout.addWidget(self.matrix_button)
-        controls_layout.addWidget(self.copy_matrix_button)
+        controls_layout.addLayout(copy_layout)
         controls_layout.addWidget(self.matrix_dimensions_label)
         controls_layout.addWidget(self.matrix_preview, 1)
 
@@ -530,7 +638,10 @@ class MainWindow(QMainWindow):
         self.matrix_dimensions_label.setText(
             f"Dimensions: {rows} × {columns}"
         )
-        self._matrix_copy_text = matrix_to_mathematica(matrix)
+        self._matrix_copy_texts = {
+            "mathematica": matrix_to_mathematica(matrix),
+            "python": matrix_to_python(matrix),
+        }
         self.copy_matrix_button.setEnabled(True)
         if matrix_type == "nonbacktracking":
             for index, arc in enumerate(directed_arcs(self.graph)):
@@ -541,7 +652,9 @@ class MainWindow(QMainWindow):
                 self.matrix_preview.verticalHeaderItem(index).setToolTip(description)
 
     def copy_matrix(self) -> None:
-        """Copy the complete generated matrix in Mathematica syntax."""
+        """Copy the complete generated matrix using the selected syntax."""
 
-        if self._matrix_copy_text:
-            QApplication.clipboard().setText(self._matrix_copy_text)
+        syntax = "python" if self.python_radio.isChecked() else "mathematica"
+        text = self._matrix_copy_texts.get(syntax, "")
+        if text:
+            QApplication.clipboard().setText(text)

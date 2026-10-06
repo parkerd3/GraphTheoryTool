@@ -35,14 +35,26 @@ def matrix_to_text(matrix: np.ndarray) -> str:
 def matrix_to_mathematica(matrix: np.ndarray) -> str:
     """Return a matrix as a Mathematica-compatible nested list."""
 
+    return _matrix_to_nested_list(matrix, "{", "}")
+
+
+def matrix_to_python(matrix: np.ndarray) -> str:
+    """Return a matrix as a Python-compatible nested list."""
+
+    return _matrix_to_nested_list(matrix, "[", "]")
+
+
+def _matrix_to_nested_list(matrix: np.ndarray, opening: str, closing: str) -> str:
+    """Share number formatting and shape validation between copy formats."""
+
     array = np.asarray(matrix)
     if array.ndim != 2:
         raise ValueError("A matrix must be two-dimensional.")
     if array.shape[0] == 0:
-        return "{}"
+        return opening + closing
 
     rows = [
-        "{" + ",".join(format_scalar(value) for value in row) + "}"
+        opening + ",".join(format_scalar(value) for value in row) + closing
         for row in array
     ]
-    return "{" + ",".join(rows) + "}"
+    return opening + ",".join(rows) + closing

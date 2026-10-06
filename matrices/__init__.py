@@ -1,7 +1,7 @@
 """Matrix-generation functions."""
 
 from .adjacency import adjacency_matrix
-from .formatting import format_scalar, matrix_to_mathematica, matrix_to_text
+from .formatting import format_scalar, matrix_to_mathematica, matrix_to_python, matrix_to_text
 from .ihara import ihara_matrix
 from .laplacian import degree_matrix, laplacian_matrix
 from .nonbacktracking import DirectedEdge, directed_arcs, nonbacktracking_matrix
@@ -15,6 +15,7 @@ __all__ = [
     "format_scalar",
     "ihara_matrix",
     "matrix_to_mathematica",
+    "matrix_to_python",
     "matrix_to_text",
     "nonbacktracking_matrix",
 ]
